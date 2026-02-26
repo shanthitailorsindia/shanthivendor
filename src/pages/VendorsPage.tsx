@@ -9,11 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, Phone, Mail, Calendar, StickyNote, Globe, CreditCard } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 export default function VendorsPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { data: vendors, isLoading } = useQuery({
     queryKey: ["vendor-profiles"],
@@ -135,7 +137,7 @@ export default function VendorsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered?.map((v) => (
-            <div key={v.id} className="stat-card animate-fade-in">
+            <div key={v.id} className="stat-card animate-fade-in cursor-pointer" onClick={() => navigate(`/vendors/${v.id}`)}>
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h3 className="font-semibold text-foreground">{v.company_name}</h3>

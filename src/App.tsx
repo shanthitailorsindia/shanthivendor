@@ -9,6 +9,7 @@ import type { Session } from "@supabase/supabase-js";
 import AppLayout from "@/components/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import VendorsPage from "@/pages/VendorsPage";
+import VendorDetailPage from "@/pages/VendorDetailPage";
 import PurchaseBillsPage from "@/pages/PurchaseBillsPage";
 import PaymentsPage from "@/pages/PaymentsPage";
 import ProductsPage from "@/pages/ProductsPage";
@@ -56,6 +57,7 @@ function AuthWrapper() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/vendors" element={<VendorsPage />} />
+        <Route path="/vendors/:id" element={<VendorDetailPage />} />
         <Route path="/purchase-bills" element={<PurchaseBillsPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/products" element={<ProductsPage />} />
