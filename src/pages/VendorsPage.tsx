@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Phone, Mail } from "lucide-react";
+import { Plus, Search, Phone, Mail, Calendar, StickyNote } from "lucide-react";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
 export default function VendorsPage() {
@@ -24,7 +25,15 @@ export default function VendorsPage() {
   });
 
   const addVendor = useMutation({
-    mutationFn: async (vendor: { vendor_name: string; contact_name: string; email: string; phone: string; payment_terms: string; notes: string }) => {
+    mutationFn: async (vendor: {
+      vendor_name: string;
+      contact_name: string;
+      email: string;
+      phone: string;
+      payment_terms: string;
+      notes: string;
+      is_active: boolean;
+    }) => {
       const { error } = await supabase.from("vendors").insert(vendor);
       if (error) throw error;
     },
@@ -38,8 +47,12 @@ export default function VendorsPage() {
 
   const filtered = vendors?.filter(v =>
     v.vendor_name?.toLowerCase().includes(search.toLowerCase()) ||
-    v.contact_name?.toLowerCase().includes(search.toLowerCase())
+    v.contact_name?.toLowerCase().includes(search.toLowerCase()) ||
+    v.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
   return (
     <div>
@@ -52,7 +65,7 @@ export default function VendorsPage() {
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />Add Vendor</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>Add New Vendor</DialogTitle></DialogHeader>
             <form onSubmit={(e) => {
               e.preventDefault();
@@ -64,6 +77,7 @@ export default function VendorsPage() {
                 phone: fd.get("phone") as string,
                 payment_terms: fd.get("payment_terms") as string,
                 notes: fd.get("notes") as string,
+                is_active: fd.get("is_active") === "on",
               });
             }} className="space-y-4">
               <div><Label>Vendor Name *</Label><Input name="vendor_name" required /></div>
@@ -73,7 +87,11 @@ export default function VendorsPage() {
                 <div><Label>Phone</Label><Input name="phone" /></div>
               </div>
               <div><Label>Payment Terms</Label><Input name="payment_terms" placeholder="e.g., Net 30" /></div>
-              <div><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
+              <div><Label>Notes</Label><Textarea name="notes" rows={3} /></div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" name="is_active" id="is_active" defaultChecked className="rounded border-input" />
+                <Label htmlFor="is_active" className="!mt-0">Active Vendor</Label>
+              </div>
               <Button type="submit" className="w-full" disabled={addVendor.isPending}>
                 {addVendor.isPending ? "Adding..." : "Add Vendor"}
               </Button>
@@ -105,6 +123,7 @@ export default function VendorsPage() {
               <div className="space-y-1.5 text-sm">
                 {v.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-3.5 w-3.5" />{v.phone}</div>}
                 {v.email && <div className="flex items-center gap-2 text-muted-foreground"><Mail className="h-3.5 w-3.5" />{v.email}</div>}
+                {v.notes && <div className="flex items-start gap-2 text-muted-foreground"><StickyNote className="h-3.5 w-3.5 mt-0.5 shrink-0" /><span className="line-clamp-2">{v.notes}</span></div>}
               </div>
               {v.payment_terms && (
                 <div className="mt-3 pt-3 border-t">
@@ -114,8 +133,12 @@ export default function VendorsPage() {
               <div className="mt-2 pt-2 border-t flex justify-between items-center">
                 <p className="text-xs text-muted-foreground">Balance</p>
                 <p className="text-sm font-semibold font-mono text-foreground">
-                  {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(v.total_balance) || 0)}
+                  {formatCurrency(Number(v.total_balance) || 0)}
                 </p>
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Calendar className="h-3 w-3" />
+                Added {format(new Date(v.created_at), "dd MMM yyyy")}
               </div>
             </div>
           ))}

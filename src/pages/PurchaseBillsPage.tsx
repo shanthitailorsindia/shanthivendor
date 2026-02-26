@@ -5,9 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -60,7 +59,8 @@ export default function PurchaseBillsPage() {
   });
 
   const filtered = bills?.filter(b =>
-    b.bill_number?.toLowerCase().includes(search.toLowerCase())
+    b.bill_number?.toLowerCase().includes(search.toLowerCase()) ||
+    (vendorMap?.[b.vendor_id] ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
   const formatCurrency = (n: number) =>
@@ -85,20 +85,37 @@ export default function PurchaseBillsPage() {
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />New Bill</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Purchase Bill</DialogTitle></DialogHeader>
             <form onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
+              const subtotal = Number(fd.get("subtotal"));
+              const taxAmount = Number(fd.get("tax_amount"));
+              const discountType = fd.get("discount_type") as string;
+              const discountValue = Number(fd.get("discount_value"));
+              const discountAmount = discountType === "percentage"
+                ? subtotal * discountValue / 100
+                : discountValue;
+              const totalAmount = subtotal + taxAmount - discountAmount;
+
               addBill.mutate({
                 bill_number: fd.get("bill_number"),
                 vendor_id: fd.get("vendor_id"),
                 bill_date: fd.get("bill_date"),
                 due_date: fd.get("due_date"),
-                subtotal: Number(fd.get("subtotal")),
-                tax_amount: Number(fd.get("tax_amount")),
-                total_amount: Number(fd.get("subtotal")) + Number(fd.get("tax_amount")),
+                subtotal,
+                tax_amount: taxAmount,
+                discount_type: discountType,
+                discount_value: discountValue,
+                discount_amount: discountAmount,
+                total_amount: totalAmount,
+                is_gst_inclusive: fd.get("is_gst_inclusive") === "on",
+                currency: fd.get("currency") || "INR",
                 notes: fd.get("notes"),
+                original_bill_url: fd.get("original_bill_url") || null,
+                original_bill_filename: fd.get("original_bill_filename") || null,
+                status: fd.get("status") || "draft",
               });
             }} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -119,6 +136,40 @@ export default function PurchaseBillsPage() {
                 <div><Label>Subtotal *</Label><Input name="subtotal" type="number" step="0.01" required /></div>
                 <div><Label>Tax Amount</Label><Input name="tax_amount" type="number" step="0.01" defaultValue="0" /></div>
               </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label>Discount Type</Label>
+                  <select name="discount_type" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <option value="percentage">Percentage</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                </div>
+                <div><Label>Discount Value</Label><Input name="discount_value" type="number" step="0.01" defaultValue="0" /></div>
+                <div>
+                  <Label>Currency</Label>
+                  <Input name="currency" defaultValue="INR" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Status</Label>
+                  <select name="status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <option value="draft">Draft</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="received">Received</option>
+                  </select>
+                </div>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="is_gst_inclusive" className="rounded border-input" />
+                    GST Inclusive
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Bill URL</Label><Input name="original_bill_url" type="url" placeholder="https://..." /></div>
+                <div><Label>Bill Filename</Label><Input name="original_bill_filename" placeholder="invoice.pdf" /></div>
+              </div>
               <div><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
               <Button type="submit" className="w-full" disabled={addBill.isPending}>
                 {addBill.isPending ? "Creating..." : "Create Bill"}
@@ -133,7 +184,7 @@ export default function PurchaseBillsPage() {
         <Input placeholder="Search bills..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      <div className="data-table-container">
+      <div className="data-table-container overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
@@ -141,28 +192,48 @@ export default function PurchaseBillsPage() {
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Vendor</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Due Date</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Amount</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Subtotal</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Discount</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tax</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Paid</th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">GST Inc.</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Bill</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {isLoading ? (
-              <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
+              <tr><td colSpan={12} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
             ) : filtered?.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">No bills found</td></tr>
+              <tr><td colSpan={12} className="text-center py-12 text-muted-foreground">No bills found</td></tr>
             ) : filtered?.map((bill) => (
               <tr key={bill.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 text-sm font-medium font-mono text-foreground">{bill.bill_number}</td>
                 <td className="px-4 py-3 text-sm text-foreground">{vendorMap?.[bill.vendor_id] ?? "—"}</td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(bill.bill_date), "dd MMM yyyy")}</td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(bill.due_date), "dd MMM yyyy")}</td>
+                <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">{formatCurrency(Number(bill.subtotal))}</td>
+                <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">
+                  {Number(bill.discount_amount) > 0
+                    ? `${formatCurrency(Number(bill.discount_amount))} (${bill.discount_type === 'percentage' ? `${bill.discount_value}%` : 'flat'})`
+                    : "—"}
+                </td>
+                <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">{formatCurrency(Number(bill.tax_amount))}</td>
                 <td className="px-4 py-3 text-sm text-right font-semibold font-mono text-foreground">{formatCurrency(Number(bill.total_amount))}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-success">{formatCurrency(Number(bill.paid_amount))}</td>
+                <td className="px-4 py-3 text-center text-xs text-muted-foreground">{bill.is_gst_inclusive ? "Yes" : "No"}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${statusColor(bill.payment_status)}`}>
                     {bill.payment_status}
                   </span>
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {bill.original_bill_url ? (
+                    <a href={bill.original_bill_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80" title={bill.original_bill_filename || "View bill"}>
+                      <ExternalLink className="h-4 w-4 inline" />
+                    </a>
+                  ) : "—"}
                 </td>
               </tr>
             ))}
