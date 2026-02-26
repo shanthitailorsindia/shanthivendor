@@ -28,19 +28,19 @@ export default function PaymentsPage() {
   });
 
   const { data: vendors } = useQuery({
-    queryKey: ["vendors-list"],
+    queryKey: ["vendor-profiles-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendors").select("id, vendor_name").eq("is_active", true);
+      const { data } = await supabase.from("vendor_profiles").select("id, company_name").eq("status", "active");
       return data ?? [];
     },
   });
 
   const { data: vendorMap } = useQuery({
-    queryKey: ["vendors-map"],
+    queryKey: ["vendor-profiles-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendors").select("id, vendor_name");
+      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
       const map: Record<string, string> = {};
-      data?.forEach(v => { map[v.id] = v.vendor_name; });
+      data?.forEach(v => { map[v.id] = v.company_name; });
       return map;
     },
   });
@@ -126,7 +126,7 @@ export default function PaymentsPage() {
                 <Label>Vendor *</Label>
                 <select name="vendor_id" required className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                   <option value="">Select vendor</option>
-                  {vendors?.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}
+                  {vendors?.map(v => <option key={v.id} value={v.id}>{v.company_name}</option>)}
                 </select>
               </div>
               <div>

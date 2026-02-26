@@ -28,19 +28,19 @@ export default function PurchaseBillsPage() {
   });
 
   const { data: vendors } = useQuery({
-    queryKey: ["vendors-list"],
+    queryKey: ["vendor-profiles-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendors").select("id, vendor_name").eq("is_active", true);
+      const { data } = await supabase.from("vendor_profiles").select("id, company_name").eq("status", "active");
       return data ?? [];
     },
   });
 
   const { data: vendorMap } = useQuery({
-    queryKey: ["vendors-map"],
+    queryKey: ["vendor-profiles-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendors").select("id, vendor_name");
+      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
       const map: Record<string, string> = {};
-      data?.forEach(v => { map[v.id] = v.vendor_name; });
+      data?.forEach(v => { map[v.id] = v.company_name; });
       return map;
     },
   });
@@ -79,7 +79,7 @@ export default function PurchaseBillsPage() {
       <div className="page-header flex items-center justify-between">
         <div>
           <h1 className="page-title">Purchase Bills</h1>
-          <p className="page-subtitle">Track vendor purchases and invoices</p>
+          <p className="page-subtitle">Track vendor purchases and invoices · {filtered?.length ?? 0} bills</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -124,7 +124,7 @@ export default function PurchaseBillsPage() {
                   <Label>Vendor *</Label>
                   <select name="vendor_id" required className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                     <option value="">Select vendor</option>
-                    {vendors?.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}
+                    {vendors?.map(v => <option key={v.id} value={v.id}>{v.company_name}</option>)}
                   </select>
                 </div>
               </div>
@@ -145,10 +145,7 @@ export default function PurchaseBillsPage() {
                   </select>
                 </div>
                 <div><Label>Discount Value</Label><Input name="discount_value" type="number" step="0.01" defaultValue="0" /></div>
-                <div>
-                  <Label>Currency</Label>
-                  <Input name="currency" defaultValue="INR" />
-                </div>
+                <div><Label>Currency</Label><Input name="currency" defaultValue="INR" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -197,16 +194,15 @@ export default function PurchaseBillsPage() {
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tax</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Paid</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">GST Inc.</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Bill</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {isLoading ? (
-              <tr><td colSpan={12} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
+              <tr><td colSpan={11} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
             ) : filtered?.length === 0 ? (
-              <tr><td colSpan={12} className="text-center py-12 text-muted-foreground">No bills found</td></tr>
+              <tr><td colSpan={11} className="text-center py-12 text-muted-foreground">No bills found</td></tr>
             ) : filtered?.map((bill) => (
               <tr key={bill.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 text-sm font-medium font-mono text-foreground">{bill.bill_number}</td>
@@ -216,13 +212,12 @@ export default function PurchaseBillsPage() {
                 <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">{formatCurrency(Number(bill.subtotal))}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">
                   {Number(bill.discount_amount) > 0
-                    ? `${formatCurrency(Number(bill.discount_amount))} (${bill.discount_type === 'percentage' ? `${bill.discount_value}%` : 'flat'})`
+                    ? `${formatCurrency(Number(bill.discount_amount))}`
                     : "—"}
                 </td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-muted-foreground">{formatCurrency(Number(bill.tax_amount))}</td>
                 <td className="px-4 py-3 text-sm text-right font-semibold font-mono text-foreground">{formatCurrency(Number(bill.total_amount))}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-success">{formatCurrency(Number(bill.paid_amount))}</td>
-                <td className="px-4 py-3 text-center text-xs text-muted-foreground">{bill.is_gst_inclusive ? "Yes" : "No"}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${statusColor(bill.payment_status)}`}>
                     {bill.payment_status}

@@ -25,9 +25,9 @@ function StatCard({ title, value, icon: Icon, trend, color }: {
 
 export default function Dashboard() {
   const { data: vendors } = useQuery({
-    queryKey: ["vendors-count"],
+    queryKey: ["vendor-profiles-count"],
     queryFn: async () => {
-      const { count } = await supabase.from("vendors").select("*", { count: "exact", head: true });
+      const { count } = await supabase.from("vendor_profiles").select("*", { count: "exact", head: true }).eq("status", "active");
       return count ?? 0;
     },
   });
