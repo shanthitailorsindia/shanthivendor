@@ -539,7 +539,7 @@ export default function PurchaseBillsPage() {
                   <div id="new-product-form" className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div><Label className="text-xs">Name *</Label><Input id="np_name" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">Item Code *</Label><Input id="np_item_code" required className="h-8 text-sm" /></div>
-                    <div><Label className="text-xs">Cost Price *</Label><Input id="np_cost_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
+                    <div><Label className="text-xs">Purchase Price *</Label><Input id="np_cost_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">Selling Price *</Label><Input id="np_unit_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">HSN Code *</Label><Input id="np_hsn_code" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">GST Rate % *</Label><Input id="np_gst_rate" type="number" step="0.01" required className="h-8 text-sm" /></div>
