@@ -1,85 +1,99 @@
 
-# Vendor Management System - Detailed Views & Line-Item Bills
+
+# Enhanced Purchase Bill - Search, Tax Toggle & Bulk Upload
 
 ## Overview
-Two major enhancements: (1) Individual vendor detail pages showing complete profile, balance summary, purchase history, and payment history. (2) Detailed purchase bill creation with line items that can reference existing products or create new ones inline.
+Three improvements to the Purchase Bill creation flow: (1) searchable product picker with inline creation, (2) tax inclusive/exclusive toggle with proper calculation logic, and (3) bulk upload of items via CSV (item_code + quantity).
 
 ---
 
-## 1. Individual Vendor Detail Page
+## 1. Searchable Product Picker
 
-### New Route: `/vendors/:id`
-Create a new page `src/pages/VendorDetailPage.tsx` that shows everything about a single vendor in one place.
+**Current state**: Plain `<select>` dropdown -- hard to find products when the list is long.
 
-**Sections:**
-- **Header**: Company name, status badge, category, contact info (phone, email, website)
-- **Financial Summary Cards**: Opening balance, current balance (from `vendor_balance_summary` view), total purchases, total payments
-- **Profile Details**: Tax ID (GSTIN), registration number, credit limit, payment terms, preferred payment method, preferred currency, notes
-- **Related Data Tabs** (using Radix Tabs):
-  - **Purchase Bills Tab**: Table of all `purchase_bills` where `vendor_id` matches, showing bill number, date, amounts, payment status
-  - **Payments Tab**: Table of all `vendor_payments` where `vendor_id` matches, showing date, amount, method, bill reference, status
-  - **Contacts Tab**: List from `vendor_contacts` table (first_name, last_name, designation, department, phone, email)
-  - **Addresses Tab**: List from `vendor_addresses` table (address lines, city, state, postal_code, country, type)
-  - **Documents Tab**: List from `vendor_documents` table (file_name, document_type, file_url)
+**Change**: Replace with a searchable input that filters products by name or item_code as the user types, showing a dropdown of matches. Selecting a match auto-fills the line item. A "+ Create New" option at the bottom opens the inline product creation form (already exists, just needs to be triggered from the new search UI).
 
-**Navigation**: Clicking a vendor card on VendorsPage navigates to `/vendors/:id`. Add a back button on the detail page.
-
-### Files Changed
-- `src/pages/VendorDetailPage.tsx` -- new file
-- `src/App.tsx` -- add route `/vendors/:id`
-- `src/pages/VendorsPage.tsx` -- make vendor cards clickable (Link to detail page)
+**Implementation**:
+- Add a `productSearch` state per line item (keyed by `item.key`)
+- Render an `<Input>` that filters products by name/item_code on each keystroke
+- Show a positioned dropdown list of matching products below the input
+- On select, call existing `selectProduct()` and close dropdown
+- Keep the existing "+ Create New" option at the bottom of the filtered list
+- Use `onBlur` with a small delay to allow click on dropdown items
 
 ---
 
-## 2. Detailed Purchase Bill with Line Items
+## 2. Tax Inclusive / Exclusive Toggle
 
-### Redesigned Bill Creation Flow
-Replace the current "New Bill" dialog with a full-page or large dialog that supports adding individual line items.
+**Current state**: There's a GST Inclusive checkbox but it doesn't affect line-item calculations. The `recalcLine` function always calculates tax on top (exclusive).
 
-**Bill Header Fields** (same as now): Bill number, vendor, bill date, due date, currency, GST inclusive, notes, bill URL/filename, status.
+**Change**: Add a controlled `isGstInclusive` state (boolean toggle at the top of the form). When toggled, recalculate all line items:
 
-**Line Items Section** (new):
-Each line item row has:
-- Product selector (searchable dropdown from `products` table) OR "Create New" option
-- Item code (auto-filled from selected product)
-- Description (auto-filled, editable)
-- Quantity
-- Unit price (auto-filled from product's cost_price, editable)
-- Tax rate (auto-filled from product's GST rate, editable)
-- Tax amount (calculated: quantity x unit_price x tax_rate / 100)
-- Total amount (calculated: quantity x unit_price + tax_amount)
-- Remove button
+- **Exclusive (default)**: base = qty x price, tax = base x rate/100, total = base + tax
+- **Inclusive**: total = qty x price (price already includes tax), tax = total - (total / (1 + rate/100)), base = total - tax
 
-**"Create New Product" inline**: When user clicks "Create New" in the product selector, a mini-form expands or a sub-dialog opens with: name, item_code, cost_price, unit_price, hsn_code, gst_rate, category_id, quantity_in_stock. On save, it inserts into `products` table and auto-selects it in the line item.
+The toggle will be a prominent Switch component near the line items header. Changing it recalculates all existing line items immediately.
 
-**Auto-calculated Totals**:
-- Subtotal = sum of all line item totals (before discount)
-- Discount (type + value as before)
-- Tax total = sum of all line item tax amounts
-- Grand total = subtotal - discount + tax (or adjusted if GST inclusive)
+**`recalcLine` update**:
+```
+function recalcLine(item, inclusive):
+  if exclusive:
+    base = qty * price
+    tax = base * rate / 100
+    total = base + tax
+  if inclusive:
+    total = qty * price
+    base = total / (1 + rate/100)
+    tax = total - base
+```
 
-**Save Flow**:
-1. Insert into `purchase_bills` with header data + calculated totals
-2. Insert each line item into `purchase_bill_items` with `bill_id`, `product_id`, description, quantity, unit_price, tax_rate, tax_amount, total_amount
+The `totals` memo will also adjust subtotal based on the mode.
 
-### Files Changed
-- `src/pages/PurchaseBillsPage.tsx` -- redesign the create bill dialog with line items, product search, inline product creation
+---
+
+## 3. Bulk Upload (CSV: item_code, quantity)
+
+**Change**: Add a "Bulk Upload" button next to "Add Item". Clicking it opens a section with:
+- A file input accepting `.csv` files
+- A textarea for manual paste (item_code,quantity per line)
+- A "Process" button
+
+**Processing logic**:
+1. Parse CSV/text -- each row has `item_code` and `quantity`
+2. For each row, look up the product by `item_code` in the already-fetched `products` list
+3. If found, add a new line item with all product details auto-filled
+4. If not found, show a warning toast listing unmatched item codes
+5. All matched items are appended to existing line items
+
+**CSV format expected**:
+```
+item_code,quantity
+SKU001,10
+SKU002,5
+```
 
 ---
 
 ## Technical Details
 
-### Data Queries
-- Vendor detail page uses `vendor_balance_summary` view for current balance
-- Uses separate queries for `vendor_contacts`, `vendor_addresses`, `vendor_documents` filtered by `vendor_id`
-- Bill creation queries `products` table for the searchable product dropdown
-- Line items saved to `purchase_bill_items` table (bill_id, product_id, description, item_code, quantity, unit_price, tax_rate, tax_amount, total_amount)
+### File modified: `src/pages/PurchaseBillsPage.tsx`
 
-### State Management for Line Items
-- Use React `useState` with an array of line item objects
-- Each item tracks: `productId`, `description`, `itemCode`, `quantity`, `unitPrice`, `taxRate`, `taxAmount`, `totalAmount`
-- Recalculate tax and total on quantity/price/rate changes
-- Product search uses a filtered list from the products query
+**New state variables**:
+- `isGstInclusive: boolean` (default false)
+- `productSearchTerms: Record<number, string>` (search text per line item key)
+- `showBulkUpload: boolean`
 
-### No Database Migrations Needed
-All required tables already exist: `purchase_bill_items`, `vendor_contacts`, `vendor_addresses`, `vendor_documents`, `vendor_balance_summary` (view).
+**Updated functions**:
+- `recalcLine(item, isInclusive)` -- accepts inclusive flag
+- `updateLineItem` -- passes inclusive flag to recalcLine
+- `selectProduct` -- passes inclusive flag
+- `handleBulkUpload(text: string)` -- new function to parse CSV and add line items
+- `totals` memo -- adjusts subtotal calculation based on inclusive mode
+
+**New UI components** (all within existing file):
+- Searchable product input with dropdown (replaces `<select>`)
+- `Switch` component for GST inclusive/exclusive toggle
+- Bulk upload section with file input and textarea
+
+### No database changes needed -- all existing columns support this.
+
