@@ -168,8 +168,24 @@ export default function PurchaseBillsPage() {
   const { data: products, refetch: refetchProducts } = useQuery({
     queryKey: ["products-for-bill"],
     queryFn: async () => {
-      const { data } = await supabase.from("products").select("id, name, item_code, cost_price, unit_price, gst_rate, hsn_code, category_id").eq("is_active", true).order("name");
-      return data ?? [];
+      // Fetch all products (Supabase default limit is 1000)
+      const allProducts: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, item_code, cost_price, unit_price, gst_rate, hsn_code, category_id")
+          .eq("is_active", true)
+          .order("name")
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allProducts.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allProducts;
     },
   });
 
@@ -524,7 +540,7 @@ export default function PurchaseBillsPage() {
                     <div><Label className="text-xs">Name *</Label><Input id="np_name" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">Item Code *</Label><Input id="np_item_code" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">Cost Price *</Label><Input id="np_cost_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
-                    <div><Label className="text-xs">Unit Price *</Label><Input id="np_unit_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
+                    <div><Label className="text-xs">Selling Price *</Label><Input id="np_unit_price" type="number" step="0.01" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">HSN Code *</Label><Input id="np_hsn_code" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">GST Rate % *</Label><Input id="np_gst_rate" type="number" step="0.01" required className="h-8 text-sm" /></div>
                     <div><Label className="text-xs">Stock Qty</Label><Input id="np_stock" type="number" defaultValue="0" className="h-8 text-sm" /></div>
