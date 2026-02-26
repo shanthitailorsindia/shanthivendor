@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, IndianRupee } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -53,6 +53,16 @@ export default function PaymentsPage() {
     },
   });
 
+  const { data: billMap } = useQuery({
+    queryKey: ["bills-map"],
+    queryFn: async () => {
+      const { data } = await supabase.from("purchase_bills").select("id, bill_number");
+      const map: Record<string, string> = {};
+      data?.forEach(b => { map[b.id] = b.bill_number; });
+      return map;
+    },
+  });
+
   const addPayment = useMutation({
     mutationFn: async (payment: any) => {
       const { error } = await supabase.from("vendor_payments").insert(payment);
@@ -78,6 +88,12 @@ export default function PaymentsPage() {
     }
   };
 
+  const filteredPayments = payments?.filter(p =>
+    (vendorMap?.[p.vendor_id] ?? "").toLowerCase().includes(search.toLowerCase()) ||
+    (billMap?.[p.bill_id] ?? "").toLowerCase().includes(search.toLowerCase()) ||
+    p.payment_method?.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div>
       <div className="page-header flex items-center justify-between">
@@ -100,9 +116,9 @@ export default function PaymentsPage() {
                 amount: Number(fd.get("amount")),
                 payment_amount: Number(fd.get("amount")),
                 payment_date: fd.get("payment_date"),
-                due_date: fd.get("payment_date"),
+                due_date: fd.get("due_date") || fd.get("payment_date"),
                 payment_method: fd.get("payment_method"),
-                status: "completed",
+                status: fd.get("status"),
                 notes: fd.get("notes"),
               });
             }} className="space-y-4">
@@ -122,15 +138,25 @@ export default function PaymentsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Amount *</Label><Input name="amount" type="number" step="0.01" required /></div>
-                <div><Label>Date *</Label><Input name="payment_date" type="date" required /></div>
+                <div><Label>Payment Date *</Label><Input name="payment_date" type="date" required /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Due Date</Label><Input name="due_date" type="date" /></div>
+                <div>
+                  <Label>Payment Method</Label>
+                  <select name="payment_method" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <option value="cash">Cash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="upi">UPI</option>
+                    <option value="cheque">Cheque</option>
+                  </select>
+                </div>
               </div>
               <div>
-                <Label>Payment Method</Label>
-                <select name="payment_method" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="upi">UPI</option>
-                  <option value="cheque">Cheque</option>
+                <Label>Status</Label>
+                <select name="status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <option value="completed">Completed</option>
+                  <option value="pending">Pending</option>
                 </select>
               </div>
               <div><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
@@ -147,25 +173,30 @@ export default function PaymentsPage() {
         <Input placeholder="Search payments..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      <div className="data-table-container">
+      <div className="data-table-container overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Vendor</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Bill Ref</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Due Date</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment Date</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Method</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Amount</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Notes</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {isLoading ? (
-              <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
-            ) : payments?.length === 0 ? (
-              <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">No payments recorded</td></tr>
-            ) : payments?.map((p) => (
+              <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
+            ) : filteredPayments?.length === 0 ? (
+              <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No payments recorded</td></tr>
+            ) : filteredPayments?.map((p) => (
               <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 text-sm font-medium text-foreground">{vendorMap?.[p.vendor_id] ?? "—"}</td>
+                <td className="px-4 py-3 text-sm font-mono text-muted-foreground">{p.bill_id ? (billMap?.[p.bill_id] ?? "—") : "—"}</td>
+                <td className="px-4 py-3 text-sm text-muted-foreground">{p.due_date ? format(new Date(p.due_date), "dd MMM yyyy") : "—"}</td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</td>
                 <td className="px-4 py-3 text-sm text-foreground capitalize">{p.payment_method?.replace("_", " ") ?? "—"}</td>
                 <td className="px-4 py-3 text-sm text-right font-semibold font-mono text-foreground">{formatCurrency(Number(p.payment_amount || p.amount))}</td>
@@ -174,6 +205,7 @@ export default function PaymentsPage() {
                     {p.status}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-sm text-muted-foreground max-w-[200px] truncate">{p.notes || "—"}</td>
               </tr>
             ))}
           </tbody>
