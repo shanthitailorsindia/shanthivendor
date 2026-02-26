@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ interface LineItem {
   item_code: string;
   quantity: number;
   unit_price: number;
+  selling_price: number;
   tax_rate: number;
   tax_amount: number;
   total_amount: number;
@@ -25,7 +26,7 @@ interface LineItem {
 
 const emptyLineItem = (key: number): LineItem => ({
   key, product_id: "", description: "", item_code: "",
-  quantity: 1, unit_price: 0, tax_rate: 0, tax_amount: 0, total_amount: 0,
+  quantity: 1, unit_price: 0, selling_price: 0, tax_rate: 0, tax_amount: 0, total_amount: 0,
 });
 
 function recalcLine(item: LineItem, isInclusive: boolean): LineItem {
@@ -54,72 +55,66 @@ function ProductSearchInput({
 }) {
   const [term, setTerm] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const selectedProduct = products.find(p => p.id === value);
-  const displayValue = selectedProduct ? selectedProduct.name : term;
 
   const filtered = useMemo(() => {
-    if (!term) return products.slice(0, 50);
-    const lower = term.toLowerCase();
-    return products.filter(p =>
-      p.name.toLowerCase().includes(lower) || p.item_code?.toLowerCase().includes(lower)
-    ).slice(0, 50);
+    const lower = term.trim().toLowerCase();
+    if (!lower) return products.slice(0, 50);
+    return products
+      .filter(p => p.name.toLowerCase().includes(lower) || p.item_code?.toLowerCase().includes(lower))
+      .slice(0, 50);
   }, [products, term]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const handleSelect = (productId: string) => {
+    onSelect(productId);
+    setTerm("");
+    setShowDropdown(false);
+  };
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div className="relative">
       <Input
-        value={showDropdown ? term : displayValue}
-        placeholder="Search product..."
+        value={showDropdown ? term : selectedProduct?.name ?? ""}
+        placeholder="Search by name or code..."
         className="h-8 text-sm"
-        onFocus={() => {
-          setShowDropdown(true);
-          setTerm("");
-        }}
-        onChange={e => {
+        onFocus={() => setShowDropdown(true)}
+        onBlur={() => window.setTimeout(() => setShowDropdown(false), 150)}
+        onChange={(e) => {
           setTerm(e.target.value);
-          setShowDropdown(true);
+          if (!showDropdown) setShowDropdown(true);
         }}
       />
+
       {showDropdown && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
-          {filtered.length === 0 && (
-            <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
-          )}
-          {filtered.map(p => (
-            <div
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+          {filtered.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>}
+
+          {filtered.map((p) => (
+            <button
               key={p.id}
-              className="px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
-              onMouseDown={() => {
-                onSelect(p.id);
-                setTerm("");
-                setShowDropdown(false);
-              }}
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleSelect(p.id)}
             >
               <span className="font-medium">{p.name}</span>
               {p.item_code && <span className="ml-2 text-xs text-muted-foreground font-mono">{p.item_code}</span>}
-            </div>
+            </button>
           ))}
-          <div
-            className="px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground border-t font-medium text-primary"
-            onMouseDown={() => {
+
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 text-sm border-t font-medium text-primary hover:bg-accent hover:text-accent-foreground"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
               onCreateNew();
+              setTerm("");
               setShowDropdown(false);
             }}
           >
             <Plus className="h-3 w-3 inline mr-1" />Create New Product
-          </div>
+          </button>
         </div>
       )}
     </div>
@@ -218,7 +213,7 @@ export default function PurchaseBillsPage() {
 
   const createProduct = useMutation({
     mutationFn: async (product: any) => {
-      const { data, error } = await supabase.from("products").insert(product).select("id, name, item_code, cost_price, gst_rate").single();
+      const { data, error } = await supabase.from("products").insert(product).select("id, name, item_code, cost_price, unit_price, gst_rate").single();
       if (error) throw error;
       return data;
     },
@@ -230,6 +225,7 @@ export default function PurchaseBillsPage() {
           description: data.name,
           item_code: data.item_code,
           unit_price: Number(data.cost_price),
+          selling_price: Number(data.unit_price),
           tax_rate: Number(data.gst_rate),
         });
       }
@@ -262,6 +258,7 @@ export default function PurchaseBillsPage() {
         description: product.name,
         item_code: product.item_code,
         unit_price: Number(product.cost_price),
+        selling_price: Number(product.unit_price),
         tax_rate: Number(product.gst_rate),
       });
     }
@@ -298,6 +295,7 @@ export default function PurchaseBillsPage() {
           item_code: product.item_code,
           quantity: qty,
           unit_price: Number(product.cost_price),
+          selling_price: Number(product.unit_price),
           tax_rate: Number(product.gst_rate),
           tax_amount: 0,
           total_amount: 0,
@@ -480,14 +478,15 @@ export default function PurchaseBillsPage() {
                   </div>
                 )}
 
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-visible">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/50 border-b">
                         <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Product</th>
                         <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground w-20">Code</th>
                         <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-16">Qty</th>
-                        <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-24">Price</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-24">Purchase</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-24">Selling</th>
                         <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-16">Tax%</th>
                         <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-20">Tax</th>
                         <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-24">Total</th>
@@ -511,6 +510,9 @@ export default function PurchaseBillsPage() {
                           </td>
                           <td className="px-3 py-2">
                             <Input type="number" step="0.01" value={item.unit_price} onChange={e => updateLineItem(item.key, { unit_price: Number(e.target.value) || 0 })} className="h-8 text-right text-sm w-24" />
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">
+                            {item.selling_price > 0 ? item.selling_price.toFixed(2) : "—"}
                           </td>
                           <td className="px-3 py-2">
                             <Input type="number" step="0.01" value={item.tax_rate} onChange={e => updateLineItem(item.key, { tax_rate: Number(e.target.value) || 0 })} className="h-8 text-right text-sm w-16" />
