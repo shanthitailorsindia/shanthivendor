@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, ExternalLink, Trash2, PackagePlus } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Search, ExternalLink, Trash2, PackagePlus, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -27,10 +28,102 @@ const emptyLineItem = (key: number): LineItem => ({
   quantity: 1, unit_price: 0, tax_rate: 0, tax_amount: 0, total_amount: 0,
 });
 
-function recalcLine(item: LineItem): LineItem {
+function recalcLine(item: LineItem, isInclusive: boolean): LineItem {
+  if (isInclusive) {
+    const total = item.quantity * item.unit_price;
+    const base = total / (1 + item.tax_rate / 100);
+    const tax = total - base;
+    return { ...item, tax_amount: Math.round(tax * 100) / 100, total_amount: Math.round(total * 100) / 100 };
+  }
   const base = item.quantity * item.unit_price;
   const tax = base * item.tax_rate / 100;
   return { ...item, tax_amount: Math.round(tax * 100) / 100, total_amount: Math.round((base + tax) * 100) / 100 };
+}
+
+/* ── Searchable Product Picker ── */
+function ProductSearchInput({
+  products,
+  value,
+  onSelect,
+  onCreateNew,
+}: {
+  products: { id: string; name: string; item_code: string }[];
+  value: string;
+  onSelect: (productId: string) => void;
+  onCreateNew: () => void;
+}) {
+  const [term, setTerm] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const selectedProduct = products.find(p => p.id === value);
+  const displayValue = selectedProduct ? selectedProduct.name : term;
+
+  const filtered = useMemo(() => {
+    if (!term) return products.slice(0, 50);
+    const lower = term.toLowerCase();
+    return products.filter(p =>
+      p.name.toLowerCase().includes(lower) || p.item_code?.toLowerCase().includes(lower)
+    ).slice(0, 50);
+  }, [products, term]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <Input
+        value={showDropdown ? term : displayValue}
+        placeholder="Search product..."
+        className="h-8 text-sm"
+        onFocus={() => {
+          setShowDropdown(true);
+          setTerm("");
+        }}
+        onChange={e => {
+          setTerm(e.target.value);
+          setShowDropdown(true);
+        }}
+      />
+      {showDropdown && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+          {filtered.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
+          )}
+          {filtered.map(p => (
+            <div
+              key={p.id}
+              className="px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onMouseDown={() => {
+                onSelect(p.id);
+                setTerm("");
+                setShowDropdown(false);
+              }}
+            >
+              <span className="font-medium">{p.name}</span>
+              {p.item_code && <span className="ml-2 text-xs text-muted-foreground font-mono">{p.item_code}</span>}
+            </div>
+          ))}
+          <div
+            className="px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground border-t font-medium text-primary"
+            onMouseDown={() => {
+              onCreateNew();
+              setShowDropdown(false);
+            }}
+          >
+            <Plus className="h-3 w-3 inline mr-1" />Create New Product
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PurchaseBillsPage() {
@@ -39,6 +132,9 @@ export default function PurchaseBillsPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLineItem(1)]);
   const [nextKey, setNextKey] = useState(2);
   const [showNewProduct, setShowNewProduct] = useState<number | null>(null);
+  const [isGstInclusive, setIsGstInclusive] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkText, setBulkText] = useState("");
   const queryClient = useQueryClient();
 
   const { data: bills, isLoading } = useQuery({
@@ -98,8 +194,7 @@ export default function PurchaseBillsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-bills"] });
       setOpen(false);
-      setLineItems([emptyLineItem(1)]);
-      setNextKey(2);
+      resetForm();
       toast.success("Purchase bill created");
     },
     onError: (e) => toast.error(e.message),
@@ -130,9 +225,9 @@ export default function PurchaseBillsPage() {
 
   const updateLineItem = useCallback((key: number, updates: Partial<LineItem>) => {
     setLineItems(prev => prev.map(item =>
-      item.key === key ? recalcLine({ ...item, ...updates }) : item
+      item.key === key ? recalcLine({ ...item, ...updates }, isGstInclusive) : item
     ));
-  }, []);
+  }, [isGstInclusive]);
 
   const addLine = () => {
     setLineItems(prev => [...prev, emptyLineItem(nextKey)]);
@@ -156,12 +251,92 @@ export default function PurchaseBillsPage() {
     }
   };
 
+  // Recalculate all line items when tax mode toggles
+  const handleToggleGst = (inclusive: boolean) => {
+    setIsGstInclusive(inclusive);
+    setLineItems(prev => prev.map(item => recalcLine(item, inclusive)));
+  };
+
+  // Bulk upload handler
+  const handleBulkUpload = (text: string) => {
+    if (!products || !text.trim()) return;
+    const lines = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
+    const unmatched: string[] = [];
+    let k = nextKey;
+    const newItems: LineItem[] = [];
+
+    for (const line of lines) {
+      // Skip header row
+      if (line.toLowerCase().startsWith("item_code")) continue;
+      const parts = line.split(",").map(s => s.trim());
+      const code = parts[0];
+      const qty = Number(parts[1]) || 1;
+      if (!code) continue;
+
+      const product = products.find(p => p.item_code?.toLowerCase() === code.toLowerCase());
+      if (product) {
+        const item: LineItem = {
+          key: k++,
+          product_id: product.id,
+          description: product.name,
+          item_code: product.item_code,
+          quantity: qty,
+          unit_price: Number(product.cost_price),
+          tax_rate: Number(product.gst_rate),
+          tax_amount: 0,
+          total_amount: 0,
+        };
+        newItems.push(recalcLine(item, isGstInclusive));
+      } else {
+        unmatched.push(code);
+      }
+    }
+
+    if (newItems.length > 0) {
+      setLineItems(prev => [...prev.filter(i => i.product_id), ...newItems]);
+      setNextKey(k);
+      toast.success(`Added ${newItems.length} item(s)`);
+    }
+    if (unmatched.length > 0) {
+      toast.warning(`Unmatched item codes: ${unmatched.join(", ")}`);
+    }
+    setBulkText("");
+    setShowBulkUpload(false);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      if (text) handleBulkUpload(text);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const resetForm = () => {
+    setLineItems([emptyLineItem(1)]);
+    setNextKey(2);
+    setShowNewProduct(null);
+    setIsGstInclusive(false);
+    setShowBulkUpload(false);
+    setBulkText("");
+  };
+
   const totals = useMemo(() => {
+    if (isGstInclusive) {
+      const grandTotal = lineItems.reduce((s, i) => s + i.total_amount, 0);
+      const taxTotal = lineItems.reduce((s, i) => s + i.tax_amount, 0);
+      const subtotal = grandTotal - taxTotal;
+      return { subtotal, taxTotal, grandTotal };
+    }
     const subtotal = lineItems.reduce((s, i) => s + i.quantity * i.unit_price, 0);
     const taxTotal = lineItems.reduce((s, i) => s + i.tax_amount, 0);
     const grandTotal = lineItems.reduce((s, i) => s + i.total_amount, 0);
     return { subtotal, taxTotal, grandTotal };
-  }, [lineItems]);
+  }, [lineItems, isGstInclusive]);
 
   const filtered = bills?.filter(b =>
     b.bill_number?.toLowerCase().includes(search.toLowerCase()) ||
@@ -203,7 +378,7 @@ export default function PurchaseBillsPage() {
         discount_value: discountValue,
         discount_amount: discountAmount,
         total_amount: totalAmount,
-        is_gst_inclusive: fd.get("is_gst_inclusive") === "on",
+        is_gst_inclusive: isGstInclusive,
         currency: fd.get("currency") || "INR",
         notes: fd.get("notes"),
         original_bill_url: fd.get("original_bill_url") || null,
@@ -221,7 +396,7 @@ export default function PurchaseBillsPage() {
           <h1 className="page-title">Purchase Bills</h1>
           <p className="page-subtitle">Track vendor purchases and invoices · {filtered?.length ?? 0} bills</p>
         </div>
-        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setLineItems([emptyLineItem(1)]); setNextKey(2); setShowNewProduct(null); } }}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />New Bill</Button>
           </DialogTrigger>
@@ -245,9 +420,50 @@ export default function PurchaseBillsPage() {
               {/* Line Items */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <Label className="text-sm font-semibold">Line Items</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addLine}><Plus className="h-3 w-3 mr-1" />Add Item</Button>
+                  <div className="flex items-center gap-4">
+                    <Label className="text-sm font-semibold">Line Items</Label>
+                    <div className="flex items-center gap-2">
+                      <Switch checked={isGstInclusive} onCheckedChange={handleToggleGst} />
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {isGstInclusive ? "Tax Inclusive" : "Tax Exclusive"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowBulkUpload(prev => !prev)}>
+                      <Upload className="h-3 w-3 mr-1" />Bulk Upload
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={addLine}>
+                      <Plus className="h-3 w-3 mr-1" />Add Item
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Bulk Upload Section */}
+                {showBulkUpload && (
+                  <div className="border rounded-lg p-4 mb-3 bg-muted/30 space-y-3">
+                    <Label className="text-sm font-semibold">Bulk Upload Items (CSV: item_code, quantity)</Label>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <Textarea
+                          value={bulkText}
+                          onChange={e => setBulkText(e.target.value)}
+                          placeholder={"item_code,quantity\nSKU001,10\nSKU002,5"}
+                          rows={4}
+                          className="text-sm font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2 justify-end">
+                        <Label className="text-xs text-muted-foreground">Or upload CSV file:</Label>
+                        <Input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="h-8 text-xs w-40" />
+                        <Button type="button" size="sm" onClick={() => handleBulkUpload(bulkText)} disabled={!bulkText.trim()}>
+                          Process
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
@@ -266,20 +482,12 @@ export default function PurchaseBillsPage() {
                       {lineItems.map(item => (
                         <tr key={item.key}>
                           <td className="px-3 py-2">
-                            <div className="flex gap-1">
-                              <select
-                                value={item.product_id}
-                                onChange={e => {
-                                  if (e.target.value === "__new__") { setShowNewProduct(item.key); }
-                                  else selectProduct(item.key, e.target.value);
-                                }}
-                                className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm"
-                              >
-                                <option value="">Select product</option>
-                                {products?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                <option value="__new__">+ Create New</option>
-                              </select>
-                            </div>
+                            <ProductSearchInput
+                              products={products ?? []}
+                              value={item.product_id}
+                              onSelect={(id) => selectProduct(item.key, id)}
+                              onCreateNew={() => setShowNewProduct(item.key)}
+                            />
                           </td>
                           <td className="px-3 py-2 text-xs font-mono text-muted-foreground">{item.item_code || "—"}</td>
                           <td className="px-3 py-2">
@@ -358,10 +566,6 @@ export default function PurchaseBillsPage() {
                     <option value="received">Received</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="is_gst_inclusive" className="rounded border-input" />GST Inclusive</label>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
