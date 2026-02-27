@@ -1,99 +1,46 @@
 
 
-# Enhanced Purchase Bill - Search, Tax Toggle & Bulk Upload
+# QR Price Tags - 3 Sticker Size Formats
 
-## Overview
-Three improvements to the Purchase Bill creation flow: (1) searchable product picker with inline creation, (2) tax inclusive/exclusive toggle with proper calculation logic, and (3) bulk upload of items via CSV (item_code + quantity).
+## What Changes
 
----
+Add a **Sticker Format** selector to the QR Price Tags page with 3 options, each having a different tag design:
 
-## 1. Searchable Product Picker
+| Format | Dimensions | Layout |
+|--------|-----------|--------|
+| **Jewellery Tag** | 92x15mm | Compact horizontal: QR on left, item code below QR, product name + price on right |
+| **2 Across** | 50x25mm | Two-column print: QR + item code on left, shop name + product name + price on right |
+| **4 Across** | 25x20mm | Compact vertical: shop name on top, QR + price side-by-side, product name + item code below |
 
-**Current state**: Plain `<select>` dropdown -- hard to find products when the list is long.
+## Implementation Details
 
-**Change**: Replace with a searchable input that filters products by name or item_code as the user types, showing a dropdown of matches. Selecting a match auto-fills the line item. A "+ Create New" option at the bottom opens the inline product creation form (already exists, just needs to be triggered from the new search UI).
+### 1. Add format selector (Select dropdown)
 
-**Implementation**:
-- Add a `productSearch` state per line item (keyed by `item.key`)
-- Render an `<Input>` that filters products by name/item_code on each keystroke
-- Show a positioned dropdown list of matching products below the input
-- On select, call existing `selectProduct()` and close dropdown
-- Keep the existing "+ Create New" option at the bottom of the filtered list
-- Use `onBlur` with a small delay to allow click on dropdown items
+Add a `stickerSize` state (`"jewellery-tag" | "2-across" | "4-across"`, default `"2-across"`) and render a `Select` component in the page header area next to the Print button.
 
----
+### 2. Create 3 QRTag variants
 
-## 2. Tax Inclusive / Exclusive Toggle
+Replace the single `QRTag` component with format-aware rendering:
 
-**Current state**: There's a GST Inclusive checkbox but it doesn't affect line-item calculations. The `recalcLine` function always calculates tax on top (exclusive).
+- **Jewellery Tag**: Narrow horizontal strip layout. QR code (60px) on the left side, item code underneath. Right side shows product name and price in small text. Minimal padding.
+- **2 Across**: Card layout with left column (QR code 120px + item code) and right column ("SHANTHI TAILORS" header, product name, price as "Our Price: ..."). Includes color/size if the product category contains "readymade".
+- **4 Across**: Small compact card. "SHANTHI TAILORS" at top, QR (80px) and price side by side in the middle, product name and item code at the bottom.
 
-**Change**: Add a controlled `isGstInclusive` state (boolean toggle at the top of the form). When toggled, recalculate all line items:
+### 3. Update preview grid
 
-- **Exclusive (default)**: base = qty x price, tax = base x rate/100, total = base + tax
-- **Inclusive**: total = qty x price (price already includes tax), tax = total - (total / (1 + rate/100)), base = total - tax
+Adjust the preview grid columns based on format:
+- Jewellery Tag: 1 column (tags are wide/narrow)
+- 2 Across: 2 columns
+- 4 Across: 4 columns (smaller tags)
 
-The toggle will be a prominent Switch component near the line items header. Changing it recalculates all existing line items immediately.
+### 4. Update print logic
 
-**`recalcLine` update**:
-```
-function recalcLine(item, inclusive):
-  if exclusive:
-    base = qty * price
-    tax = base * rate / 100
-    total = base + tax
-  if inclusive:
-    total = qty * price
-    base = total / (1 + rate/100)
-    tax = total - base
-```
+Update `handlePrint` to generate format-specific HTML for the print window, matching the designs above. The print grid columns will also match the format (jewellery: 1 col, 2-across: 2 cols, 4-across: 4 cols).
 
-The `totals` memo will also adjust subtotal based on the mode.
+### 5. Fetch additional fields
 
----
+Update the product query to also fetch `category_id` (and join category name if available) plus any `color`/`size` fields, needed for the 2-across readymade costume variant.
 
-## 3. Bulk Upload (CSV: item_code, quantity)
-
-**Change**: Add a "Bulk Upload" button next to "Add Item". Clicking it opens a section with:
-- A file input accepting `.csv` files
-- A textarea for manual paste (item_code,quantity per line)
-- A "Process" button
-
-**Processing logic**:
-1. Parse CSV/text -- each row has `item_code` and `quantity`
-2. For each row, look up the product by `item_code` in the already-fetched `products` list
-3. If found, add a new line item with all product details auto-filled
-4. If not found, show a warning toast listing unmatched item codes
-5. All matched items are appended to existing line items
-
-**CSV format expected**:
-```
-item_code,quantity
-SKU001,10
-SKU002,5
-```
-
----
-
-## Technical Details
-
-### File modified: `src/pages/PurchaseBillsPage.tsx`
-
-**New state variables**:
-- `isGstInclusive: boolean` (default false)
-- `productSearchTerms: Record<number, string>` (search text per line item key)
-- `showBulkUpload: boolean`
-
-**Updated functions**:
-- `recalcLine(item, isInclusive)` -- accepts inclusive flag
-- `updateLineItem` -- passes inclusive flag to recalcLine
-- `selectProduct` -- passes inclusive flag
-- `handleBulkUpload(text: string)` -- new function to parse CSV and add line items
-- `totals` memo -- adjusts subtotal calculation based on inclusive mode
-
-**New UI components** (all within existing file):
-- Searchable product input with dropdown (replaces `<select>`)
-- `Switch` component for GST inclusive/exclusive toggle
-- Bulk upload section with file input and textarea
-
-### No database changes needed -- all existing columns support this.
+### File modified
+- `src/pages/QRPriceTagsPage.tsx` -- all changes in this single file
 
