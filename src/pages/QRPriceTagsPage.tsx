@@ -1,11 +1,38 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Printer, QrCode } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
+import QRCode from "qrcode";
+
+function QRTag({ product, formatCurrency }: { product: any; formatCurrency: (n: number) => string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (canvasRef.current && product.item_code) {
+      QRCode.toCanvas(canvasRef.current, product.item_code, {
+        width: 80,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+      });
+    }
+  }, [product.item_code]);
+
+  return (
+    <div className="qr-tag animate-fade-in">
+      <p className="text-xs font-bold text-foreground uppercase truncate">{product.name}</p>
+      <p className="text-[10px] text-muted-foreground font-mono mb-2">{product.item_code}</p>
+      <div className="qr-container flex justify-center my-2">
+        <canvas ref={canvasRef} />
+      </div>
+      <p className="text-lg font-extrabold text-foreground">{formatCurrency(Number(product.unit_price))}</p>
+      <p className="text-[9px] text-muted-foreground">MRP incl. {Number(product.gst_rate)}% GST</p>
+      {product.hsn_code && <p className="text-[8px] text-muted-foreground mt-0.5">HSN: {product.hsn_code}</p>}
+    </div>
+  );
+}
 
 export default function QRPriceTagsPage() {
   const [search, setSearch] = useState("");
@@ -51,9 +78,29 @@ export default function QRPriceTagsPage() {
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const content = printRef.current;
-    if (!content) return;
+    if (!content || selectedProducts.length === 0) return;
+
+    // Generate QR data URLs for each product
+    const qrImages: Record<string, string> = {};
+    await Promise.all(
+      selectedProducts.map(async (p) => {
+        qrImages[p.id] = await QRCode.toDataURL(p.item_code, { width: 80, margin: 1, errorCorrectionLevel: 'M' });
+      })
+    );
+
+    const tagsHtml = selectedProducts.map(p => `
+      <div class="tag">
+        <p class="tag-name">${p.name}</p>
+        <p class="tag-code">${p.item_code}</p>
+        <div class="qr-container"><img src="${qrImages[p.id]}" width="80" height="80" /></div>
+        <p class="tag-price">${formatCurrency(Number(p.unit_price))}</p>
+        <p class="tag-mrp">MRP incl. ${Number(p.gst_rate)}% GST</p>
+        ${p.hsn_code ? `<p class="tag-gst">HSN: ${p.hsn_code}</p>` : ''}
+      </div>
+    `).join('');
+
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(`
@@ -71,13 +118,10 @@ export default function QRPriceTagsPage() {
           .tag-mrp { font-size: 9px; color: #6b7280; margin-top: 2px; }
           .tag-gst { font-size: 8px; color: #9ca3af; margin-top: 2px; }
           .qr-container { display: flex; justify-content: center; margin: 8px 0; }
-          @media print {
-            .tags-grid { gap: 8px; padding: 8px; }
-            .tag { border-width: 1px; }
-          }
+          @media print { .tags-grid { gap: 8px; padding: 8px; } .tag { border-width: 1px; } }
         </style>
       </head>
-      <body>${content.innerHTML}</body>
+      <body><div class="tags-grid">${tagsHtml}</div></body>
       </html>
     `);
     win.document.close();
@@ -149,20 +193,7 @@ export default function QRPriceTagsPage() {
             <div ref={printRef}>
               <div className="tags-grid grid grid-cols-2 gap-3">
                 {selectedProducts.map((p) => (
-                  <div key={p.id} className="qr-tag animate-fade-in">
-                    <p className="text-xs font-bold text-foreground uppercase truncate">{p.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono mb-2">{p.item_code}</p>
-                    <div className="qr-container flex justify-center my-2">
-                      <QRCodeSVG
-                        value={JSON.stringify({ id: p.id, code: p.item_code, name: p.name, price: p.unit_price })}
-                        size={80}
-                        level="M"
-                      />
-                    </div>
-                    <p className="text-lg font-extrabold text-foreground">{formatCurrency(Number(p.unit_price))}</p>
-                    <p className="text-[9px] text-muted-foreground">MRP incl. {Number(p.gst_rate)}% GST</p>
-                    {p.hsn_code && <p className="text-[8px] text-muted-foreground mt-0.5">HSN: {p.hsn_code}</p>}
-                  </div>
+                  <QRTag key={p.id} product={p} formatCurrency={formatCurrency} />
                 ))}
               </div>
             </div>
