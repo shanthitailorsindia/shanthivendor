@@ -35,13 +35,23 @@ export default function ProductsPage() {
   const { data: products, isLoading } = useQuery({
     queryKey: ["products-list"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("is_active", true)
-        .order("name");
-      if (error) throw error;
-      return data;
+      const allProducts: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("is_active", true)
+          .order("name")
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allProducts.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allProducts;
     },
   });
 

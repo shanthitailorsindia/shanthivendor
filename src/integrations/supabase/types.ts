@@ -3187,6 +3187,530 @@ export type Database = {
           },
         ]
       }
+      franchise_inventory: {
+        Row: {
+          franchise_id: string | null
+          id: string
+          last_franchise_price_inr: number | null
+          last_retail_price_local: number | null
+          product_id: string
+          product_name: string
+          product_sku: string | null
+          quantity_in_hand: number
+          updated_at: string | null
+        }
+        Insert: {
+          franchise_id?: string | null
+          id?: string
+          last_franchise_price_inr?: number | null
+          last_retail_price_local?: number | null
+          product_id: string
+          product_name: string
+          product_sku?: string | null
+          quantity_in_hand?: number
+          updated_at?: string | null
+        }
+        Update: {
+          franchise_id?: string | null
+          id?: string
+          last_franchise_price_inr?: number | null
+          last_retail_price_local?: number | null
+          product_id?: string
+          product_name?: string
+          product_sku?: string | null
+          quantity_in_hand?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_inventory_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_payments: {
+        Row: {
+          amount_inr: number
+          created_at: string | null
+          franchise_id: string | null
+          id: string
+          notes: string | null
+          payment_date: string
+          payment_method: string | null
+          reference_number: string | null
+          shipment_id: string | null
+        }
+        Insert: {
+          amount_inr: number
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          notes?: string | null
+          payment_date: string
+          payment_method?: string | null
+          reference_number?: string | null
+          shipment_id?: string | null
+        }
+        Update: {
+          amount_inr?: number
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_method?: string | null
+          reference_number?: string | null
+          shipment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_payments_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "franchise_payments_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_sale_items: {
+        Row: {
+          created_at: string | null
+          franchise_cost_inr: number | null
+          id: string
+          product_id: string
+          product_name: string
+          quantity: number
+          sale_id: string | null
+          total_price_local: number
+          unit_price_local: number
+        }
+        Insert: {
+          created_at?: string | null
+          franchise_cost_inr?: number | null
+          id?: string
+          product_id: string
+          product_name: string
+          quantity: number
+          sale_id?: string | null
+          total_price_local: number
+          unit_price_local: number
+        }
+        Update: {
+          created_at?: string | null
+          franchise_cost_inr?: number | null
+          id?: string
+          product_id?: string
+          product_name?: string
+          quantity?: number
+          sale_id?: string | null
+          total_price_local?: number
+          unit_price_local?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_sale_items_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_sales: {
+        Row: {
+          created_at: string | null
+          currency_code: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          franchise_id: string | null
+          id: string
+          invoice_number: string | null
+          payment_method: string | null
+          sold_at: string | null
+          total_inr_approx: number | null
+          total_local_currency: number
+        }
+        Insert: {
+          created_at?: string | null
+          currency_code?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          franchise_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          payment_method?: string | null
+          sold_at?: string | null
+          total_inr_approx?: number | null
+          total_local_currency: number
+        }
+        Update: {
+          created_at?: string | null
+          currency_code?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          franchise_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          payment_method?: string | null
+          sold_at?: string | null
+          total_inr_approx?: number | null
+          total_local_currency?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_sales_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_shipment_inventory_log: {
+        Row: {
+          deducted_at: string | null
+          deducted_from: string
+          id: string
+          product_id: string
+          quantity_deducted: number
+          shipment_id: string | null
+          shipment_item_id: string | null
+        }
+        Insert: {
+          deducted_at?: string | null
+          deducted_from?: string
+          id?: string
+          product_id: string
+          quantity_deducted: number
+          shipment_id?: string | null
+          shipment_item_id?: string | null
+        }
+        Update: {
+          deducted_at?: string | null
+          deducted_from?: string
+          id?: string
+          product_id?: string
+          quantity_deducted?: number
+          shipment_id?: string | null
+          shipment_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_shipment_inventory_log_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "franchise_shipment_inventory_log_shipment_item_id_fkey"
+            columns: ["shipment_item_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_shipment_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_shipment_items: {
+        Row: {
+          cost_price_inr: number
+          created_at: string | null
+          franchise_price_inr: number | null
+          id: string
+          product_id: string
+          product_name: string
+          product_sku: string | null
+          quantity: number
+          retail_price_inr: number | null
+          retail_price_local: number | null
+          shipment_id: string | null
+        }
+        Insert: {
+          cost_price_inr: number
+          created_at?: string | null
+          franchise_price_inr?: number | null
+          id?: string
+          product_id: string
+          product_name: string
+          product_sku?: string | null
+          quantity: number
+          retail_price_inr?: number | null
+          retail_price_local?: number | null
+          shipment_id?: string | null
+        }
+        Update: {
+          cost_price_inr?: number
+          created_at?: string | null
+          franchise_price_inr?: number | null
+          id?: string
+          product_id?: string
+          product_name?: string
+          product_sku?: string | null
+          quantity?: number
+          retail_price_inr?: number | null
+          retail_price_local?: number | null
+          shipment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_shipments: {
+        Row: {
+          amount_paid_inr: number | null
+          created_at: string | null
+          delivered_at: string | null
+          dispatched_at: string | null
+          expected_delivery_date: string | null
+          franchise_id: string | null
+          id: string
+          inventory_deducted: boolean | null
+          invoice_number: string | null
+          notes: string | null
+          payment_due_date: string | null
+          payment_status: string | null
+          request_id: string | null
+          shipment_type: string
+          status: string
+          total_inr: number | null
+          transfer_type: string
+          updated_at: string | null
+        }
+        Insert: {
+          amount_paid_inr?: number | null
+          created_at?: string | null
+          delivered_at?: string | null
+          dispatched_at?: string | null
+          expected_delivery_date?: string | null
+          franchise_id?: string | null
+          id?: string
+          inventory_deducted?: boolean | null
+          invoice_number?: string | null
+          notes?: string | null
+          payment_due_date?: string | null
+          payment_status?: string | null
+          request_id?: string | null
+          shipment_type?: string
+          status?: string
+          total_inr?: number | null
+          transfer_type?: string
+          updated_at?: string | null
+        }
+        Update: {
+          amount_paid_inr?: number | null
+          created_at?: string | null
+          delivered_at?: string | null
+          dispatched_at?: string | null
+          expected_delivery_date?: string | null
+          franchise_id?: string | null
+          id?: string
+          inventory_deducted?: boolean | null
+          invoice_number?: string | null
+          notes?: string | null
+          payment_due_date?: string | null
+          payment_status?: string | null
+          request_id?: string | null
+          shipment_type?: string
+          status?: string
+          total_inr?: number | null
+          transfer_type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_shipments_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "franchise_shipments_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_stock_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_stock_request_items: {
+        Row: {
+          created_at: string | null
+          franchise_price_inr: number | null
+          id: string
+          product_id: string
+          product_name: string
+          quantity_requested: number
+          request_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          franchise_price_inr?: number | null
+          id?: string
+          product_id: string
+          product_name: string
+          quantity_requested: number
+          request_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          franchise_price_inr?: number | null
+          id?: string
+          product_id?: string
+          product_name?: string
+          quantity_requested?: number
+          request_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_stock_request_items_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "franchise_stock_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_stock_requests: {
+        Row: {
+          created_at: string | null
+          franchise_id: string | null
+          id: string
+          notes: string | null
+          requested_by: string | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          notes?: string | null
+          requested_by?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          notes?: string | null
+          requested_by?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_stock_requests_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchise_users: {
+        Row: {
+          created_at: string | null
+          franchise_id: string | null
+          id: string
+          role: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          role?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          franchise_id?: string | null
+          id?: string
+          role?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "franchise_users_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      franchises: {
+        Row: {
+          address: string | null
+          city: string
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          country: string
+          created_at: string | null
+          currency_code: string
+          currency_symbol: string
+          franchise_type: string
+          id: string
+          inr_conversion_rate: number
+          name: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          city: string
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          country?: string
+          created_at?: string | null
+          currency_code?: string
+          currency_symbol?: string
+          franchise_type?: string
+          id?: string
+          inr_conversion_rate?: number
+          name: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          city?: string
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          country?: string
+          created_at?: string | null
+          currency_code?: string
+          currency_symbol?: string
+          franchise_type?: string
+          id?: string
+          inr_conversion_rate?: number
+          name?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       google_api_usage: {
         Row: {
           api_method: string
@@ -5002,6 +5526,7 @@ export type Database = {
           customer_id: string | null
           delivery_option: string | null
           due_date: string
+          franchise_id: string | null
           id: string
           is_admin: boolean | null
           is_same_person: boolean | null
@@ -5040,6 +5565,7 @@ export type Database = {
           customer_id?: string | null
           delivery_option?: string | null
           due_date: string
+          franchise_id?: string | null
           id?: string
           is_admin?: boolean | null
           is_same_person?: boolean | null
@@ -5078,6 +5604,7 @@ export type Database = {
           customer_id?: string | null
           delivery_option?: string | null
           due_date?: string
+          franchise_id?: string | null
           id?: string
           is_admin?: boolean | null
           is_same_person?: boolean | null
@@ -5111,6 +5638,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customer_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_bookings_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "franchises"
             referencedColumns: ["id"]
           },
         ]
@@ -11683,6 +12217,7 @@ export type Database = {
         Args: { target_month: number; target_year: number }
         Returns: Json
       }
+      get_my_franchise_id: { Args: never; Returns: string }
       get_staff_accessible_modules: {
         Args: { staff_uuid: string }
         Returns: Json
@@ -11711,6 +12246,7 @@ export type Database = {
         Args: { link_code_param: string }
         Returns: undefined
       }
+      is_hq_user: { Args: never; Returns: boolean }
       is_showroom_staff: { Args: { user_uuid: string }; Returns: boolean }
       jfd_generate_bill_number: { Args: { bill_type: string }; Returns: string }
       match_documents: {
@@ -11794,6 +12330,7 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       sync_inventory_sold_from_transactions: { Args: never; Returns: Json }
+      update_overdue_shipments: { Args: never; Returns: undefined }
       update_staff_accessible_modules: {
         Args: { modules: Json; staff_uuid: string }
         Returns: undefined
