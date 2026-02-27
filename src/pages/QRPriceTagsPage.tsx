@@ -112,7 +112,7 @@ const printGridCols: Record<StickerSize, number> = {
 
 export default function QRPriceTagsPage() {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [stickerCounts, setStickerCounts] = useState<Record<string, number>>({});
   const [stickerSize, setStickerSize] = useState<StickerSize>("2-across");
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -135,22 +135,29 @@ export default function QRPriceTagsPage() {
   );
 
   const toggleSelect = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+    setStickerCounts(prev => {
+      const next = { ...prev };
+      if (id in next) { delete next[id]; } else { next[id] = 1; }
       return next;
     });
   };
 
   const selectAll = () => {
-    if (filtered?.length === selected.size) {
-      setSelected(new Set());
+    if (filtered?.length && Object.keys(stickerCounts).length === filtered.length) {
+      setStickerCounts({});
     } else {
-      setSelected(new Set(filtered?.map(p => p.id)));
+      const next: Record<string, number> = {};
+      filtered?.forEach(p => { next[p.id] = stickerCounts[p.id] || 1; });
+      setStickerCounts(next);
     }
   };
 
-  const selectedProducts = products?.filter(p => selected.has(p.id)) ?? [];
+  const updateCount = (id: string, count: number) => {
+    setStickerCounts(prev => ({ ...prev, [id]: Math.max(1, count) }));
+  };
+
+  const selectedProducts = products?.filter(p => p.id in stickerCounts) ?? [];
+  const totalStickers = Object.values(stickerCounts).reduce((s, n) => s + n, 0);
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -204,7 +211,9 @@ export default function QRPriceTagsPage() {
       </div>`;
     };
 
-    const tagsHtml = selectedProducts.map(tagHtml).join("");
+    const tagsHtml = selectedProducts.flatMap(p =>
+      Array.from({ length: stickerCounts[p.id] || 1 }, () => tagHtml(p))
+    ).join("");
 
     const win = window.open("", "_blank");
     if (!win) return;
@@ -245,11 +254,12 @@ export default function QRPriceTagsPage() {
 
   /* ── Render Tag by format ───────────────────────────────────── */
 
-  const renderTag = (p: ProductData) => {
+  const renderTag = (p: ProductData, key?: string) => {
+    const k = key || p.id;
     switch (stickerSize) {
-      case "jewellery-tag": return <JewelleryTag key={p.id} product={p} formatCurrency={formatCurrency} />;
-      case "2-across": return <TwoAcrossTag key={p.id} product={p} formatCurrency={formatCurrency} />;
-      case "4-across": return <FourAcrossTag key={p.id} product={p} formatCurrency={formatCurrency} />;
+      case "jewellery-tag": return <JewelleryTag key={k} product={p} formatCurrency={formatCurrency} />;
+      case "2-across": return <TwoAcrossTag key={k} product={p} formatCurrency={formatCurrency} />;
+      case "4-across": return <FourAcrossTag key={k} product={p} formatCurrency={formatCurrency} />;
     }
   };
 
@@ -271,9 +281,9 @@ export default function QRPriceTagsPage() {
               <SelectItem value="4-across">4 Across (25×20mm)</SelectItem>
             </SelectContent>
           </Select>
-          {selectedProducts.length > 0 && (
+          {totalStickers > 0 && (
             <Button onClick={handlePrint}>
-              <Printer className="h-4 w-4 mr-2" />Print {selectedProducts.length} Tags
+              <Printer className="h-4 w-4 mr-2" />Print {totalStickers} Tags
             </Button>
           )}
         </div>
@@ -291,24 +301,36 @@ export default function QRPriceTagsPage() {
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Checkbox
-                  checked={filtered?.length ? filtered.length === selected.size : false}
+                  checked={filtered?.length ? Object.keys(stickerCounts).length === filtered.length : false}
                   onCheckedChange={selectAll}
                 />
                 <span className="text-xs font-medium text-muted-foreground">Select All</span>
               </div>
-              <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+              <span className="text-xs text-muted-foreground">{Object.keys(stickerCounts).length} selected · {totalStickers} stickers</span>
             </div>
             <div className="max-h-[500px] overflow-y-auto divide-y">
               {isLoading ? (
                 <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
               ) : filtered?.map((p) => (
                 <label key={p.id} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors">
-                  <Checkbox checked={selected.has(p.id)} onCheckedChange={() => toggleSelect(p.id)} />
+                  <Checkbox checked={p.id in stickerCounts} onCheckedChange={() => toggleSelect(p.id)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
                     <p className="text-xs text-muted-foreground font-mono">{p.item_code}</p>
                   </div>
-                  <p className="text-sm font-semibold font-mono text-foreground">{formatCurrency(Number(p.unit_price))}</p>
+                  {p.id in stickerCounts ? (
+                    <Input
+                      type="number"
+                      min={1}
+                      value={stickerCounts[p.id]}
+                      onChange={e => updateCount(p.id, parseInt(e.target.value) || 1)}
+                      onClick={e => e.stopPropagation()}
+                      onMouseDown={e => e.stopPropagation()}
+                      className="w-16 h-8 text-center text-sm"
+                    />
+                  ) : (
+                    <p className="text-sm font-semibold font-mono text-foreground">{formatCurrency(Number(p.unit_price))}</p>
+                  )}
                 </label>
               ))}
             </div>
@@ -329,7 +351,11 @@ export default function QRPriceTagsPage() {
           ) : (
             <div ref={printRef}>
               <div className={`grid ${gridColsClass[stickerSize]} gap-3`}>
-                {selectedProducts.map(renderTag)}
+                {selectedProducts.flatMap(p =>
+                  Array.from({ length: stickerCounts[p.id] || 1 }, (_, i) =>
+                    renderTag(p, `${p.id}-${i}`)
+                  )
+                )}
               </div>
             </div>
           )}
