@@ -4,39 +4,116 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Printer, QrCode } from "lucide-react";
 import QRCode from "qrcode";
 
-function QRTag({ product, formatCurrency }: { product: any; formatCurrency: (n: number) => string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+type StickerSize = "jewellery-tag" | "2-across" | "4-across";
 
+interface ProductData {
+  id: string;
+  name: string;
+  item_code: string;
+  unit_price: number;
+  cost_price: number;
+  hsn_code: string;
+  gst_rate: number;
+  category: string | null;
+}
+
+/* ── Tag Components ─────────────────────────────────────────── */
+
+function JewelleryTag({ product, formatCurrency }: { product: ProductData; formatCurrency: (n: number) => string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (canvasRef.current && product.item_code) {
-      QRCode.toCanvas(canvasRef.current, product.item_code, {
-        width: 80,
-        margin: 1,
-        errorCorrectionLevel: 'M',
-      });
+      QRCode.toCanvas(canvasRef.current, product.item_code, { width: 60, margin: 1, errorCorrectionLevel: "M" });
     }
   }, [product.item_code]);
 
   return (
-    <div className="qr-tag animate-fade-in">
-      <p className="text-xs font-bold text-foreground uppercase truncate">{product.name}</p>
-      <p className="text-[10px] text-muted-foreground font-mono mb-2">{product.item_code}</p>
-      <div className="qr-container flex justify-center my-2">
+    <div className="flex items-center gap-2 border border-dashed border-border rounded p-2 animate-fade-in" style={{ maxWidth: 340 }}>
+      <div className="flex flex-col items-center shrink-0">
         <canvas ref={canvasRef} />
+        <p className="text-[8px] text-muted-foreground font-mono mt-0.5">{product.item_code}</p>
       </div>
-      <p className="text-lg font-extrabold text-foreground">{formatCurrency(Number(product.unit_price))}</p>
-      <p className="text-[9px] text-muted-foreground">MRP incl. {Number(product.gst_rate)}% GST</p>
-      {product.hsn_code && <p className="text-[8px] text-muted-foreground mt-0.5">HSN: {product.hsn_code}</p>}
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold text-foreground uppercase truncate">{product.name}</p>
+        <p className="text-sm font-extrabold text-foreground">{formatCurrency(Number(product.unit_price))}</p>
+        <p className="text-[8px] text-muted-foreground">MRP incl. {Number(product.gst_rate)}% GST</p>
+      </div>
     </div>
   );
 }
 
+function TwoAcrossTag({ product, formatCurrency }: { product: ProductData; formatCurrency: (n: number) => string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isReadymade = product.category?.toLowerCase().includes("readymade") || product.category?.toLowerCase().includes("costume");
+
+  useEffect(() => {
+    if (canvasRef.current && product.item_code) {
+      QRCode.toCanvas(canvasRef.current, product.item_code, { width: 120, margin: 1, errorCorrectionLevel: "M" });
+    }
+  }, [product.item_code]);
+
+  return (
+    <div className="flex border border-dashed border-border rounded-lg p-3 gap-3 animate-fade-in">
+      <div className="flex flex-col items-center shrink-0">
+        <canvas ref={canvasRef} />
+        <p className="text-[9px] text-muted-foreground font-mono mt-1">{product.item_code}</p>
+      </div>
+      <div className="min-w-0 flex flex-col justify-center">
+        <p className="text-[10px] font-bold text-muted-foreground tracking-wide">SHANTHI TAILORS</p>
+        <p className="text-xs font-bold text-foreground uppercase truncate mt-1">{product.name}</p>
+        {isReadymade && <p className="text-[9px] text-muted-foreground">Readymade Costume</p>}
+        <p className="text-base font-extrabold text-foreground mt-1">Our Price : {formatCurrency(Number(product.unit_price))}</p>
+        <p className="text-[8px] text-muted-foreground">MRP incl. {Number(product.gst_rate)}% GST</p>
+      </div>
+    </div>
+  );
+}
+
+function FourAcrossTag({ product, formatCurrency }: { product: ProductData; formatCurrency: (n: number) => string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (canvasRef.current && product.item_code) {
+      QRCode.toCanvas(canvasRef.current, product.item_code, { width: 80, margin: 1, errorCorrectionLevel: "M" });
+    }
+  }, [product.item_code]);
+
+  return (
+    <div className="border border-dashed border-border rounded-lg p-2 text-center animate-fade-in">
+      <p className="text-[9px] font-bold text-muted-foreground tracking-wide mb-1">SHANTHI TAILORS</p>
+      <div className="flex items-center justify-center gap-2">
+        <canvas ref={canvasRef} />
+        <p className="text-base font-extrabold text-foreground">{formatCurrency(Number(product.unit_price))}</p>
+      </div>
+      <p className="text-[10px] font-bold text-foreground uppercase truncate mt-1">{product.name}</p>
+      <p className="text-[8px] text-muted-foreground font-mono">{product.item_code}</p>
+    </div>
+  );
+}
+
+/* ── Grid columns per format ───────────────────────────────── */
+
+const gridColsClass: Record<StickerSize, string> = {
+  "jewellery-tag": "grid-cols-1",
+  "2-across": "grid-cols-2",
+  "4-across": "grid-cols-4",
+};
+
+const printGridCols: Record<StickerSize, number> = {
+  "jewellery-tag": 1,
+  "2-across": 2,
+  "4-across": 4,
+};
+
+/* ── Main Page ─────────────────────────────────────────────── */
+
 export default function QRPriceTagsPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [stickerSize, setStickerSize] = useState<StickerSize>("2-across");
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: products, isLoading } = useQuery({
@@ -44,11 +121,11 @@ export default function QRPriceTagsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, item_code, unit_price, cost_price, hsn_code, gst_rate")
+        .select("id, name, item_code, unit_price, cost_price, hsn_code, gst_rate, category")
         .eq("is_active", true)
         .order("name");
       if (error) throw error;
-      return data;
+      return data as ProductData[];
     },
   });
 
@@ -78,68 +155,128 @@ export default function QRPriceTagsPage() {
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
-  const handlePrint = async () => {
-    const content = printRef.current;
-    if (!content || selectedProducts.length === 0) return;
+  /* ── Print ─────────────────────────────────────────────────── */
 
-    // Generate QR data URLs for each product
+  const handlePrint = async () => {
+    if (selectedProducts.length === 0) return;
+
     const qrImages: Record<string, string> = {};
+    const qrWidth = stickerSize === "jewellery-tag" ? 60 : stickerSize === "2-across" ? 120 : 80;
     await Promise.all(
       selectedProducts.map(async (p) => {
-        qrImages[p.id] = await QRCode.toDataURL(p.item_code, { width: 80, margin: 1, errorCorrectionLevel: 'M' });
+        qrImages[p.id] = await QRCode.toDataURL(p.item_code, { width: qrWidth, margin: 1, errorCorrectionLevel: "M" });
       })
     );
 
-    const tagsHtml = selectedProducts.map(p => `
-      <div class="tag">
-        <p class="tag-name">${p.name}</p>
-        <p class="tag-code">${p.item_code}</p>
-        <div class="qr-container"><img src="${qrImages[p.id]}" width="80" height="80" /></div>
-        <p class="tag-price">${formatCurrency(Number(p.unit_price))}</p>
-        <p class="tag-mrp">MRP incl. ${Number(p.gst_rate)}% GST</p>
-        ${p.hsn_code ? `<p class="tag-gst">HSN: ${p.hsn_code}</p>` : ''}
-      </div>
-    `).join('');
+    const cols = printGridCols[stickerSize];
+
+    const tagHtml = (p: ProductData) => {
+      const isReadymade = p.category?.toLowerCase().includes("readymade") || p.category?.toLowerCase().includes("costume");
+
+      if (stickerSize === "jewellery-tag") {
+        return `<div class="tag tag-jewellery">
+          <div class="qr-side"><img src="${qrImages[p.id]}" width="60" height="60"/><p class="code">${p.item_code}</p></div>
+          <div class="info-side">
+            <p class="pname">${p.name}</p>
+            <p class="price">${formatCurrency(Number(p.unit_price))}</p>
+            <p class="mrp">MRP incl. ${Number(p.gst_rate)}% GST</p>
+          </div>
+        </div>`;
+      }
+      if (stickerSize === "2-across") {
+        return `<div class="tag tag-2across">
+          <div class="qr-side"><img src="${qrImages[p.id]}" width="120" height="120"/><p class="code">${p.item_code}</p></div>
+          <div class="info-side">
+            <p class="shop">SHANTHI TAILORS</p>
+            <p class="pname">${p.name}</p>
+            ${isReadymade ? '<p class="cat">Readymade Costume</p>' : ""}
+            <p class="price">Our Price : ${formatCurrency(Number(p.unit_price))}</p>
+            <p class="mrp">MRP incl. ${Number(p.gst_rate)}% GST</p>
+          </div>
+        </div>`;
+      }
+      // 4-across
+      return `<div class="tag tag-4across">
+        <p class="shop">SHANTHI TAILORS</p>
+        <div class="mid"><img src="${qrImages[p.id]}" width="80" height="80"/><p class="price">${formatCurrency(Number(p.unit_price))}</p></div>
+        <p class="pname">${p.name}</p>
+        <p class="code">${p.item_code}</p>
+      </div>`;
+    };
+
+    const tagsHtml = selectedProducts.map(tagHtml).join("");
 
     const win = window.open("", "_blank");
     if (!win) return;
-    win.document.write(`
-      <html>
-      <head>
-        <title>QR Price Tags</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Inter', system-ui, sans-serif; }
-          .tags-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; }
-          .tag { border: 2px dashed #d1d5db; border-radius: 8px; padding: 16px; text-align: center; page-break-inside: avoid; }
-          .tag-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; }
-          .tag-code { font-size: 10px; color: #6b7280; margin-bottom: 8px; font-family: monospace; }
-          .tag-price { font-size: 20px; font-weight: 800; margin-top: 8px; }
-          .tag-mrp { font-size: 9px; color: #6b7280; margin-top: 2px; }
-          .tag-gst { font-size: 8px; color: #9ca3af; margin-top: 2px; }
-          .qr-container { display: flex; justify-content: center; margin: 8px 0; }
-          @media print { .tags-grid { gap: 8px; padding: 8px; } .tag { border-width: 1px; } }
-        </style>
-      </head>
-      <body><div class="tags-grid">${tagsHtml}</div></body>
-      </html>
-    `);
+    win.document.write(`<html><head><title>QR Price Tags</title><style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Inter',system-ui,sans-serif}
+      .grid{display:grid;grid-template-columns:repeat(${cols},1fr);gap:10px;padding:12px}
+      .tag{border:2px dashed #d1d5db;border-radius:8px;padding:10px;page-break-inside:avoid}
+      /* Jewellery */
+      .tag-jewellery{display:flex;align-items:center;gap:8px;padding:6px}
+      .tag-jewellery .qr-side{display:flex;flex-direction:column;align-items:center}
+      .tag-jewellery .code{font-size:8px;color:#6b7280;font-family:monospace;margin-top:2px}
+      .tag-jewellery .pname{font-size:10px;font-weight:700;text-transform:uppercase}
+      .tag-jewellery .price{font-size:16px;font-weight:800}
+      .tag-jewellery .mrp{font-size:8px;color:#6b7280}
+      /* 2-across */
+      .tag-2across{display:flex;gap:12px}
+      .tag-2across .qr-side{display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+      .tag-2across .code{font-size:9px;color:#6b7280;font-family:monospace;margin-top:4px}
+      .tag-2across .info-side{display:flex;flex-direction:column;justify-content:center}
+      .tag-2across .shop{font-size:10px;font-weight:700;color:#6b7280;letter-spacing:1px}
+      .tag-2across .pname{font-size:12px;font-weight:700;text-transform:uppercase;margin-top:4px}
+      .tag-2across .cat{font-size:9px;color:#6b7280}
+      .tag-2across .price{font-size:16px;font-weight:800;margin-top:4px}
+      .tag-2across .mrp{font-size:8px;color:#6b7280}
+      /* 4-across */
+      .tag-4across{text-align:center}
+      .tag-4across .shop{font-size:9px;font-weight:700;color:#6b7280;letter-spacing:1px;margin-bottom:4px}
+      .tag-4across .mid{display:flex;align-items:center;justify-content:center;gap:8px;margin:4px 0}
+      .tag-4across .price{font-size:16px;font-weight:800}
+      .tag-4across .pname{font-size:10px;font-weight:700;text-transform:uppercase}
+      .tag-4across .code{font-size:8px;color:#6b7280;font-family:monospace}
+      @media print{.grid{gap:6px;padding:6px}.tag{border-width:1px}}
+    </style></head><body><div class="grid">${tagsHtml}</div></body></html>`);
     win.document.close();
     win.print();
   };
 
+  /* ── Render Tag by format ───────────────────────────────────── */
+
+  const renderTag = (p: ProductData) => {
+    switch (stickerSize) {
+      case "jewellery-tag": return <JewelleryTag key={p.id} product={p} formatCurrency={formatCurrency} />;
+      case "2-across": return <TwoAcrossTag key={p.id} product={p} formatCurrency={formatCurrency} />;
+      case "4-across": return <FourAcrossTag key={p.id} product={p} formatCurrency={formatCurrency} />;
+    }
+  };
+
   return (
     <div>
-      <div className="page-header flex items-center justify-between">
+      <div className="page-header flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="page-title">QR Price Tags</h1>
           <p className="page-subtitle">Generate and print QR code-based price tags for products</p>
         </div>
-        {selectedProducts.length > 0 && (
-          <Button onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" />Print {selectedProducts.length} Tags
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          <Select value={stickerSize} onValueChange={(v) => setStickerSize(v as StickerSize)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="jewellery-tag">Jewellery Tag (92×15mm)</SelectItem>
+              <SelectItem value="2-across">2 Across (50×25mm)</SelectItem>
+              <SelectItem value="4-across">4 Across (25×20mm)</SelectItem>
+            </SelectContent>
+          </Select>
+          {selectedProducts.length > 0 && (
+            <Button onClick={handlePrint}>
+              <Printer className="h-4 w-4 mr-2" />Print {selectedProducts.length} Tags
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -191,10 +328,8 @@ export default function QRPriceTagsPage() {
             </div>
           ) : (
             <div ref={printRef}>
-              <div className="tags-grid grid grid-cols-2 gap-3">
-                {selectedProducts.map((p) => (
-                  <QRTag key={p.id} product={p} formatCurrency={formatCurrency} />
-                ))}
+              <div className={`grid ${gridColsClass[stickerSize]} gap-3`}>
+                {selectedProducts.map(renderTag)}
               </div>
             </div>
           )}
