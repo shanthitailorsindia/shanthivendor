@@ -1,65 +1,90 @@
 
 
-# Add "Number of Stickers" per Product
+# Purchase Bills: Edit, Delete, File Upload + Products: Bulk Upload
 
-## What Changes
+## Part 1: Purchase Bills - Edit, Delete, and Bill File Upload
 
-Add a quantity (copies) input for each selected product, so when printing, each product's tag is repeated the specified number of times.
+### 1A. Storage Bucket for Bill Uploads
+Create a Supabase storage bucket `purchase-bills` (public) so users can upload bill files (PDF/images) directly instead of pasting URLs.
 
-## UI Changes
+**Migration SQL:**
+- Create `purchase-bills` storage bucket
+- Add RLS policies for insert/select/delete on `storage.objects`
 
-### Product List - Quantity Input
-In the product selection list, once a product is checked, show a small number input (default: 1) next to the price. This lets the user specify how many sticker copies to print for that product.
+### 1B. Actions Column on Bills Table
+Replace the current "Bill" column with an **Actions** column containing 4 icon buttons per row:
+- **Eye** - View bill details (read-only dialog)
+- **Pencil** - Edit bill (full form dialog)
+- **Trash2** - Delete bill (confirmation dialog)
+- **QrCode** - Print QR tags for all products in the bill
 
-### State Change
-Replace `selected: Set<string>` with `stickerCounts: Record<string, number>` (maps product ID to copy count). A product is "selected" when its count is >= 1. Default count on check = 1.
+### 1C. View Bill Dialog
+- Read-only dialog showing bill header (bill number, vendor, dates, status, payment info, notes)
+- Fetch and display `purchase_bill_items` in a table (product, code, qty, price, tax, total)
+- Show bill file preview/download link if uploaded
+- Display totals summary
 
-### Preview
-In the tag preview, repeat each product's tag according to its count. For example, if "Gold Ring" has count 3, show 3 identical tags in the preview grid.
+### 1D. Edit Bill Dialog
+- Full form dialog pre-filled with existing bill data
+- Fetch `purchase_bill_items` and load into the same line-item editor (reusing `ProductSearchInput`)
+- **Bill file upload**: Replace the URL input with a file upload input that uploads to `purchase-bills` bucket. Show existing file if present, with option to replace
+- On save: update `purchase_bills` row, delete old items, insert updated items
+- Support GST inclusive/exclusive toggle, discount, and all header fields
 
-### Print
-In `handlePrint`, repeat each product's tag HTML by its count, so the print output contains the correct number of copies.
+### 1E. Delete Bill
+- `AlertDialog` confirmation: "This will permanently delete the bill and all its line items"
+- Delete `purchase_bill_items` by `bill_id`, then delete the `purchase_bills` row
+- Invalidate queries on success
 
-### Header
-Update the Print button label to show total sticker count (sum of all quantities), e.g. "Print 12 Tags".
+### 1F. QR Print from Bill
+- Dialog that fetches all `purchase_bill_items` for the bill, then fetches corresponding product data
+- **Sticker Format** selector (Jewellery Tag / 2 Across / 4 Across) - same 3 formats from QR Price Tags page
+- **Number of stickers** per product (default = quantity from bill item)
+- Preview grid + Print button
+- Reuses the same tag HTML generation logic from `QRPriceTagsPage`
+
+### 1G. Update Create Bill Form
+- Replace the "Bill URL" + "Bill Filename" fields with a **file upload** input
+- Upload file to `purchase-bills` bucket, store the public URL in `original_bill_url` and filename in `original_bill_filename`
+
+---
+
+## Part 2: Products - Bulk Upload
+
+### 2A. Bulk Upload Dialog in Products Page
+Add a **Bulk Upload** button next to the "Add Product" button that opens a dialog with:
+- **CSV file upload** input (accepts .csv, .xlsx)
+- **Paste text area** for CSV data
+- Expected format header row: `name, item_code, cost_price, unit_price, hsn_code, gst_rate, quantity_in_stock, category_text, subcategory, product_type`
+- **Preview table** showing parsed rows before import (with validation status per row)
+- **Import** button to insert all valid rows
+
+### 2B. CSV Processing Logic
+- Parse CSV text (split by newlines and commas)
+- Validate required fields: `name`, `item_code`, `cost_price`, `unit_price`, `hsn_code`, `gst_rate`
+- Skip header row if detected
+- Show count of valid vs invalid rows
+- Insert valid products into `products` table with `is_active: true`
+- Report errors for failed rows (duplicate item_code, missing fields)
+- Invalidate products query on success
+
+---
 
 ## Technical Details
 
-### State
+### New State Variables (PurchaseBillsPage)
 ```text
-// Replace:
-const [selected, setSelected] = useState<Set<string>>(new Set());
-
-// With:
-const [stickerCounts, setStickerCounts] = useState<Record<string, number>>({});
+viewBillId, editBillId, deleteBillId, qrBillId -- string | null for each dialog
 ```
 
-### Derived values
-- `selected` products: `Object.keys(stickerCounts).filter(id => stickerCounts[id] > 0)`
-- `totalStickers`: sum of all counts
-- `selectedProducts`: products filtered by selected IDs
+### New Mutations (PurchaseBillsPage)
+- `updateBill` -- update header + replace line items
+- `deleteBill` -- delete items then bill
+- `uploadBillFile` -- upload to storage bucket
 
-### Toggle / Select All
-- `toggleSelect(id)`: if product exists in counts, remove it; otherwise set count to 1
-- `selectAll`: set all filtered products to count 1, or clear all
-- Checkbox `checked` state derived from `id in stickerCounts`
+### Files Modified
+- `src/pages/PurchaseBillsPage.tsx` -- Add actions, view/edit/delete/QR dialogs, file upload
+- `src/pages/ProductsPage.tsx` -- Add bulk upload button and dialog
 
-### Quantity Input
-- Small `Input type="number"` (w-16, min=1) shown inline in the product row when checked
-- Changing the value updates `stickerCounts[id]`
-- Clicking the number input should not toggle the checkbox (stop propagation)
-
-### Preview Rendering
-```text
-selectedProducts.flatMap(p =>
-  Array.from({ length: stickerCounts[p.id] || 1 }, (_, i) =>
-    renderTag(p, `${p.id}-${i}`)
-  )
-)
-```
-
-### Print Logic
-In `handlePrint`, repeat `tagHtml(p)` by `stickerCounts[p.id]` times for each product.
-
-### File Modified
-- `src/pages/QRPriceTagsPage.tsx` -- all changes in this single file
+### Database Migration
+- Create `purchase-bills` storage bucket with public access and RLS policies
