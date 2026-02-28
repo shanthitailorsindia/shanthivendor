@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, ChevronRight, FolderOpen, Package } from "lucide-react";
+import { Plus, Search, ChevronRight, FolderOpen, Package, Upload, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type Category = {
@@ -17,10 +17,29 @@ type Category = {
   gst_rate: number | null;
 };
 
+interface BulkRow {
+  name: string;
+  item_code: string;
+  cost_price: number;
+  unit_price: number;
+  hsn_code: string;
+  gst_rate: number;
+  quantity_in_stock: number;
+  category_text: string;
+  subcategory: string;
+  product_type: string;
+  valid: boolean;
+  error?: string;
+}
+
 export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkParsed, setBulkParsed] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: categories } = useQuery({
@@ -68,6 +87,98 @@ export default function ProductsPage() {
     onError: (e) => toast.error(e.message),
   });
 
+  const bulkInsert = useMutation({
+    mutationFn: async (rows: BulkRow[]) => {
+      const validRows = rows.filter(r => r.valid);
+      const products = validRows.map(r => ({
+        name: r.name,
+        item_code: r.item_code,
+        cost_price: r.cost_price,
+        unit_price: r.unit_price,
+        hsn_code: r.hsn_code,
+        gst_rate: r.gst_rate,
+        quantity_in_stock: r.quantity_in_stock,
+        category: r.category_text || null,
+        subcategory: r.subcategory || null,
+        product_type: r.product_type || null,
+        is_active: true,
+      }));
+      const { error } = await supabase.from("products").insert(products);
+      if (error) throw error;
+      return validRows.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["products-list"] });
+      setBulkOpen(false);
+      setBulkText("");
+      setBulkRows([]);
+      setBulkParsed(false);
+      toast.success(`${count} products imported successfully`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const parseBulkText = (text: string) => {
+    const lines = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+
+    // Detect and skip header
+    const firstLine = lines[0].toLowerCase();
+    const startIndex = firstLine.includes("name") || firstLine.includes("item_code") ? 1 : 0;
+
+    const rows: BulkRow[] = [];
+    for (let i = startIndex; i < lines.length; i++) {
+      const parts = lines[i].split(",").map(s => s.trim());
+      const row: BulkRow = {
+        name: parts[0] || "",
+        item_code: parts[1] || "",
+        cost_price: Number(parts[2]) || 0,
+        unit_price: Number(parts[3]) || 0,
+        hsn_code: parts[4] || "",
+        gst_rate: Number(parts[5]) || 0,
+        quantity_in_stock: Number(parts[6]) || 0,
+        category_text: parts[7] || "",
+        subcategory: parts[8] || "",
+        product_type: parts[9] || "",
+        valid: true,
+      };
+
+      // Validate required fields
+      const errors: string[] = [];
+      if (!row.name) errors.push("name");
+      if (!row.item_code) errors.push("item_code");
+      if (!row.cost_price) errors.push("cost_price");
+      if (!row.unit_price) errors.push("unit_price");
+      if (!row.hsn_code) errors.push("hsn_code");
+      if (!row.gst_rate) errors.push("gst_rate");
+
+      if (errors.length > 0) {
+        row.valid = false;
+        row.error = `Missing: ${errors.join(", ")}`;
+      }
+
+      rows.push(row);
+    }
+
+    setBulkRows(rows);
+    setBulkParsed(true);
+  };
+
+  const handleBulkFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      if (text) {
+        setBulkText(text);
+        parseBulkText(text);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   // Build category tree
   const parentCategories = useMemo(() =>
     categories?.filter(c => !c.parent_id) ?? [], [categories]);
@@ -87,7 +198,6 @@ export default function ProductsPage() {
     return map;
   }, [categories]);
 
-  // Get all category IDs for filtering (parent + children)
   const selectedCategoryIds = useMemo(() => {
     if (!selectedCategory) return null;
     const ids = [selectedCategory];
@@ -117,6 +227,9 @@ export default function ProductsPage() {
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
   const [expandedParent, setExpandedParent] = useState<string | null>(null);
+
+  const validBulkCount = bulkRows.filter(r => r.valid).length;
+  const invalidBulkCount = bulkRows.filter(r => !r.valid).length;
 
   return (
     <div className="flex gap-6">
@@ -169,111 +282,197 @@ export default function ProductsPage() {
               {" · "}{filtered.length} items
             </p>
           </div>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button><Plus className="h-4 w-4 mr-2" />Add Product</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Add New Product</DialogTitle></DialogHeader>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                addProduct.mutate({
-                  name: fd.get("name"),
-                  item_code: fd.get("item_code"),
-                  description: fd.get("description") || null,
-                  product_type: fd.get("product_type") || null,
-                  unit_price: Number(fd.get("unit_price")),
-                  cost_price: Number(fd.get("cost_price")),
-                  hsn_code: fd.get("hsn_code"),
-                  gst_rate: Number(fd.get("gst_rate")),
-                  quantity_in_stock: Number(fd.get("quantity_in_stock")),
-                  initial_stock: Number(fd.get("initial_stock")),
-                  reorder_level: Number(fd.get("reorder_level")),
-                  category_id: fd.get("category_id") || null,
-                  category: fd.get("category_text") || null,
-                  subcategory: fd.get("subcategory") || null,
-                  image_url: fd.get("image_url") || null,
-                  meta_title: fd.get("meta_title") || null,
-                  meta_description: fd.get("meta_description") || null,
-                  is_active: true,
-                });
-              }} className="space-y-5">
-                {/* Basic Info */}
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Basic Information</h4>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><Label>Product Name *</Label><Input name="name" required /></div>
-                      <div><Label>Item Code *</Label><Input name="item_code" required /></div>
+          <div className="flex gap-2">
+            {/* Bulk Upload */}
+            <Dialog open={bulkOpen} onOpenChange={v => { setBulkOpen(v); if (!v) { setBulkText(""); setBulkRows([]); setBulkParsed(false); } }}>
+              <DialogTrigger asChild>
+                <Button variant="outline"><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Bulk Upload Products</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+                    <p className="font-semibold mb-1">Expected CSV format (comma-separated):</p>
+                    <code className="text-[10px]">name, item_code, cost_price, unit_price, hsn_code, gst_rate, quantity_in_stock, category, subcategory, product_type</code>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <Label className="text-sm">Paste CSV data:</Label>
+                      <Textarea
+                        value={bulkText}
+                        onChange={e => { setBulkText(e.target.value); setBulkParsed(false); }}
+                        placeholder={"Silk Saree,SKU001,1500,2500,5007,5,10,Sarees,Silk,Saree\nCotton Shirt,SKU002,300,599,6205,12,25,Shirts,,Readymade"}
+                        rows={6}
+                        className="text-sm font-mono"
+                      />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><Label>Product Type</Label><Input name="product_type" placeholder="e.g., Saree, Jewellery" /></div>
-                      <div><Label>Image URL</Label><Input name="image_url" type="url" /></div>
+                    <div className="flex flex-col gap-2 justify-start pt-6">
+                      <Label className="text-xs text-muted-foreground">Or upload CSV:</Label>
+                      <Input type="file" accept=".csv,.txt" onChange={handleBulkFileUpload} className="h-8 text-xs w-40" />
                     </div>
-                    <div><Label>Description</Label><Textarea name="description" rows={2} /></div>
                   </div>
-                </div>
 
-                {/* Pricing & Tax */}
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Pricing & Tax</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div><Label>Selling Price *</Label><Input name="unit_price" type="number" step="0.01" required /></div>
-                    <div><Label>Cost Price *</Label><Input name="cost_price" type="number" step="0.01" required /></div>
-                    <div><Label>HSN Code *</Label><Input name="hsn_code" required /></div>
-                    <div><Label>GST Rate (%) *</Label><Input name="gst_rate" type="number" step="0.01" required /></div>
-                  </div>
-                </div>
+                  {!bulkParsed && (
+                    <Button onClick={() => parseBulkText(bulkText)} disabled={!bulkText.trim()}>
+                      Preview Import
+                    </Button>
+                  )}
 
-                {/* Inventory */}
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Inventory</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div><Label>Current Stock *</Label><Input name="quantity_in_stock" type="number" defaultValue="0" required /></div>
-                    <div><Label>Initial Stock</Label><Input name="initial_stock" type="number" defaultValue="0" /></div>
-                    <div><Label>Reorder Level</Label><Input name="reorder_level" type="number" defaultValue="0" /></div>
-                  </div>
-                </div>
+                  {bulkParsed && bulkRows.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="flex items-center gap-1 text-success"><CheckCircle2 className="h-4 w-4" />{validBulkCount} valid</span>
+                        {invalidBulkCount > 0 && <span className="flex items-center gap-1 text-destructive"><XCircle className="h-4 w-4" />{invalidBulkCount} invalid</span>}
+                      </div>
 
-                {/* Classification */}
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Classification</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label>Category (from list)</Label>
-                      <select name="category_id" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                        <option value="">Select category</option>
-                        {parentCategories.map(cat => (
-                          <optgroup key={cat.id} label={cat.name}>
-                            <option value={cat.id}>{cat.name}</option>
-                            {childCategories[cat.id]?.map(sub => (
-                              <option key={sub.id} value={sub.id}>&nbsp;&nbsp;{sub.name}</option>
+                      <div className="border rounded-lg overflow-x-auto max-h-60">
+                        <table className="w-full text-xs">
+                          <thead><tr className="bg-muted/50 border-b">
+                            <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">Status</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">Name</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">Code</th>
+                            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">Cost</th>
+                            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">Sell</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">HSN</th>
+                            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">GST%</th>
+                            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">Stock</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">Error</th>
+                          </tr></thead>
+                          <tbody className="divide-y">
+                            {bulkRows.map((r, i) => (
+                              <tr key={i} className={r.valid ? "" : "bg-destructive/5"}>
+                                <td className="px-2 py-1.5">{r.valid ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}</td>
+                                <td className="px-2 py-1.5 text-foreground">{r.name || "—"}</td>
+                                <td className="px-2 py-1.5 font-mono text-muted-foreground">{r.item_code || "—"}</td>
+                                <td className="px-2 py-1.5 text-right font-mono">{r.cost_price || "—"}</td>
+                                <td className="px-2 py-1.5 text-right font-mono">{r.unit_price || "—"}</td>
+                                <td className="px-2 py-1.5 text-muted-foreground">{r.hsn_code || "—"}</td>
+                                <td className="px-2 py-1.5 text-right">{r.gst_rate || "—"}</td>
+                                <td className="px-2 py-1.5 text-right">{r.quantity_in_stock}</td>
+                                <td className="px-2 py-1.5 text-destructive text-[10px]">{r.error || ""}</td>
+                              </tr>
                             ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <Button onClick={() => bulkInsert.mutate(bulkRows)} disabled={validBulkCount === 0 || bulkInsert.isPending} className="w-full">
+                        {bulkInsert.isPending ? "Importing..." : `Import ${validBulkCount} Products`}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Add Product */}
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button><Plus className="h-4 w-4 mr-2" />Add Product</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Add New Product</DialogTitle></DialogHeader>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  addProduct.mutate({
+                    name: fd.get("name"),
+                    item_code: fd.get("item_code"),
+                    description: fd.get("description") || null,
+                    product_type: fd.get("product_type") || null,
+                    unit_price: Number(fd.get("unit_price")),
+                    cost_price: Number(fd.get("cost_price")),
+                    hsn_code: fd.get("hsn_code"),
+                    gst_rate: Number(fd.get("gst_rate")),
+                    quantity_in_stock: Number(fd.get("quantity_in_stock")),
+                    initial_stock: Number(fd.get("initial_stock")),
+                    reorder_level: Number(fd.get("reorder_level")),
+                    category_id: fd.get("category_id") || null,
+                    category: fd.get("category_text") || null,
+                    subcategory: fd.get("subcategory") || null,
+                    image_url: fd.get("image_url") || null,
+                    meta_title: fd.get("meta_title") || null,
+                    meta_description: fd.get("meta_description") || null,
+                    is_active: true,
+                  });
+                }} className="space-y-5">
+                  {/* Basic Info */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Basic Information</h4>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Product Name *</Label><Input name="name" required /></div>
+                        <div><Label>Item Code *</Label><Input name="item_code" required /></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Product Type</Label><Input name="product_type" placeholder="e.g., Saree, Jewellery" /></div>
+                        <div><Label>Image URL</Label><Input name="image_url" type="url" /></div>
+                      </div>
+                      <div><Label>Description</Label><Textarea name="description" rows={2} /></div>
                     </div>
-                    <div><Label>Category (text)</Label><Input name="category_text" /></div>
-                    <div><Label>Subcategory</Label><Input name="subcategory" /></div>
                   </div>
-                </div>
 
-                {/* SEO / Meta */}
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Meta / SEO</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Meta Title</Label><Input name="meta_title" /></div>
-                    <div><Label>Meta Description</Label><Input name="meta_description" /></div>
+                  {/* Pricing & Tax */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Pricing & Tax</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div><Label>Selling Price *</Label><Input name="unit_price" type="number" step="0.01" required /></div>
+                      <div><Label>Cost Price *</Label><Input name="cost_price" type="number" step="0.01" required /></div>
+                      <div><Label>HSN Code *</Label><Input name="hsn_code" required /></div>
+                      <div><Label>GST Rate (%) *</Label><Input name="gst_rate" type="number" step="0.01" required /></div>
+                    </div>
                   </div>
-                </div>
 
-                <Button type="submit" className="w-full" disabled={addProduct.isPending}>
-                  {addProduct.isPending ? "Adding..." : "Add Product"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  {/* Inventory */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Inventory</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div><Label>Current Stock *</Label><Input name="quantity_in_stock" type="number" defaultValue="0" required /></div>
+                      <div><Label>Initial Stock</Label><Input name="initial_stock" type="number" defaultValue="0" /></div>
+                      <div><Label>Reorder Level</Label><Input name="reorder_level" type="number" defaultValue="0" /></div>
+                    </div>
+                  </div>
+
+                  {/* Classification */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Classification</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label>Category (from list)</Label>
+                        <select name="category_id" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                          <option value="">Select category</option>
+                          {parentCategories.map(cat => (
+                            <optgroup key={cat.id} label={cat.name}>
+                              <option value={cat.id}>{cat.name}</option>
+                              {childCategories[cat.id]?.map(sub => (
+                                <option key={sub.id} value={sub.id}>&nbsp;&nbsp;{sub.name}</option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                      <div><Label>Category (text)</Label><Input name="category_text" /></div>
+                      <div><Label>Subcategory</Label><Input name="subcategory" /></div>
+                    </div>
+                  </div>
+
+                  {/* SEO / Meta */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Meta / SEO</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><Label>Meta Title</Label><Input name="meta_title" /></div>
+                      <div><Label>Meta Description</Label><Input name="meta_description" /></div>
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full" disabled={addProduct.isPending}>
+                    {addProduct.isPending ? "Adding..." : "Add Product"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Mobile category filter */}
