@@ -7596,6 +7596,7 @@ export type Database = {
           order_number: string
           order_source: string
           packed_photo_url: string | null
+          payment_method: string | null
           salesperson_name: string
           shipped_at: string | null
           shipping_status: string | null
@@ -7616,6 +7617,7 @@ export type Database = {
           order_number: string
           order_source?: string
           packed_photo_url?: string | null
+          payment_method?: string | null
           salesperson_name: string
           shipped_at?: string | null
           shipping_status?: string | null
@@ -7636,6 +7638,7 @@ export type Database = {
           order_number?: string
           order_source?: string
           packed_photo_url?: string | null
+          payment_method?: string | null
           salesperson_name?: string
           shipped_at?: string | null
           shipping_status?: string | null
