@@ -685,9 +685,10 @@ function PaymentsImportTab() {
     },
   });
 
+  // Composite key map: vendorId::billNumber -> bill info
   const billMap = useMemo(() => {
     const m = new Map<string, { id: string; vendor_id: string }>();
-    existingBills.forEach((b) => m.set(b.bill_number, { id: b.id, vendor_id: b.vendor_id }));
+    existingBills.forEach((b) => m.set(`${b.vendor_id}::${b.bill_number}`, { id: b.id, vendor_id: b.vendor_id }));
     return m;
   }, [existingBills]);
 
