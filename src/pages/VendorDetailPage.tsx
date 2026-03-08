@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,9 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Phone, Mail, Globe, CreditCard, Building2,
-  FileText, ExternalLink, MapPin, Users, IndianRupee
+  FileText, ExternalLink, MapPin, Users, IndianRupee, Pencil, Upload
 } from "lucide-react";
 import { format } from "date-fns";
+import EditVendorDialog from "@/components/vendor/EditVendorDialog";
+import ImportBillsDialog from "@/components/vendor/ImportBillsDialog";
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -26,6 +29,8 @@ const statusColor = (s: string) => {
 export default function VendorDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [editOpen, setEditOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: vendor, isLoading } = useQuery({
     queryKey: ["vendor-profile", id],
@@ -154,6 +159,14 @@ export default function VendorDetailPage() {
               </span>
             </div>
             {vendor.category && <p className="page-subtitle">{vendor.category}</p>}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-1" /> Import Bills
+            </Button>
+            <Button size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4 mr-1" /> Edit Vendor
+            </Button>
           </div>
         </div>
         <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
@@ -366,6 +379,9 @@ export default function VendorDetailPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <EditVendorDialog vendor={vendor} open={editOpen} onOpenChange={setEditOpen} />
+      <ImportBillsDialog vendorId={vendor.id} open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }

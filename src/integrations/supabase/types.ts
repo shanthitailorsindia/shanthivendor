@@ -7611,6 +7611,7 @@ export type Database = {
           customer_phone: string | null
           delivery_date: string | null
           id: string
+          label_url: string | null
           notes: string | null
           order_number: string
           order_source: string
@@ -7637,6 +7638,7 @@ export type Database = {
           customer_phone?: string | null
           delivery_date?: string | null
           id?: string
+          label_url?: string | null
           notes?: string | null
           order_number: string
           order_source?: string
@@ -7663,6 +7665,7 @@ export type Database = {
           customer_phone?: string | null
           delivery_date?: string | null
           id?: string
+          label_url?: string | null
           notes?: string | null
           order_number?: string
           order_source?: string
