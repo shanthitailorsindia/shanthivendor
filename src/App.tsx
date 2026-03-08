@@ -63,6 +63,7 @@ function AuthWrapper() {
         <Route path="/purchase-bills" element={<PurchaseBillsPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/products" element={<ProductsPage />} />
+        <Route path="/gst-reports" element={<GSTReportsPage />} />
         <Route path="/qr-price-tags" element={<QRPriceTagsPage />} />
         <Route path="/zoho-import" element={<ZohoImportPage />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
