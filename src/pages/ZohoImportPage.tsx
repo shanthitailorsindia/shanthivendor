@@ -574,7 +574,7 @@ function BillsImportTab() {
 }
 
 // ============================================================
-// PAYMENTS TAB
+// PAYMENTS TAB (Zoho Books format: one row per bill-payment allocation)
 // ============================================================
 function PaymentsImportTab() {
   const queryClient = useQueryClient();
@@ -584,24 +584,34 @@ function PaymentsImportTab() {
   const { data: existingVendors = [] } = useQuery({
     queryKey: ["vendor_profiles_all"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
-      return data || [];
+      const all: { id: string; company_name: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("vendor_profiles").select("id, company_name").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
 
   const { data: existingBills = [] } = useQuery({
     queryKey: ["purchase_bills_all_for_payment"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id");
-      return data || [];
+      const all: { id: string; bill_number: string; vendor_id: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
-
-  const vendorMap = useMemo(() => {
-    const m = new Map<string, string>();
-    existingVendors.forEach((v) => m.set(v.company_name.toLowerCase().trim(), v.id));
-    return m;
-  }, [existingVendors]);
 
   const billMap = useMemo(() => {
     const m = new Map<string, { id: string; vendor_id: string }>();
@@ -612,28 +622,51 @@ function PaymentsImportTab() {
   const parsedRows = useMemo(() => {
     if (!csvText.trim()) return [];
     const raw = parseCSV(csvText);
-    let rows = raw;
-    if (rows.length > 0 && isHeaderRow(rows[0], ["vendor_name", "amount", "payment_date"])) {
-      rows = rows.slice(1);
-    }
-    return rows.map((cells) => {
-      const vendor_name = cells[0] || "";
-      const bill_number = cells[1] || "";
-      const amount = parseFloat(cells[2]) || 0;
-      const payment_date = cells[3] || new Date().toISOString().split("T")[0];
-      const payment_method = cells[4] || "";
-      const status = cells[5] || "completed";
-      const notes = cells[6] || "";
-      const vendor_id = vendorMap.get(vendor_name.toLowerCase().trim());
+    if (raw.length < 2) return [];
+
+    const firstRow = raw[0];
+    const hasHeaders = firstRow.some((c) => {
+      const l = c.toLowerCase().trim();
+      return ["vendor name", "amount", "date", "mode", "bill number", "bill amount"].includes(l);
+    });
+
+    if (!hasHeaders) return [];
+
+    const headerMap = buildHeaderMap(firstRow);
+    const dataRows = raw.slice(1);
+
+    return dataRows.map((cells) => {
+      const vendor_name = getByHeader(cells, headerMap, "Vendor Name");
+      const bill_number = getByHeader(cells, headerMap, "Bill Number");
+      // Use "Bill Amount" (per-bill allocation) instead of "Amount" (total payment)
+      const billAmountStr = getByHeader(cells, headerMap, "Bill Amount");
+      const amountStr = getByHeader(cells, headerMap, "Amount");
+      const amount = parseFloat(billAmountStr) || parseFloat(amountStr) || 0;
+      const payment_date = getByHeader(cells, headerMap, "Date");
+      const payment_method = getByHeader(cells, headerMap, "Mode");
+      const payment_status = getByHeader(cells, headerMap, "Payment Status");
+      const notes = getByHeader(cells, headerMap, "Notes", "Reference#", "Reference Number");
+
+      // Fuzzy match vendor
+      const match = vendor_name ? fuzzyMatch(vendor_name, existingVendors) : null;
+      const vendor_id = match?.id || null;
       const billInfo = bill_number ? billMap.get(bill_number) : null;
+
       const errors: string[] = [];
       if (!vendor_name) errors.push("Missing vendor");
       if (!vendor_id) errors.push("Vendor not found");
       if (!amount) errors.push("Missing amount");
       if (bill_number && !billInfo) errors.push("Bill not found");
-      return { vendor_name, vendor_id, bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method, status, notes, rowStatus: errors.length ? "error" as const : "new" as const, errors };
-    });
-  }, [csvText, vendorMap, billMap]);
+      if (!payment_date) errors.push("Missing date");
+
+      return {
+        vendor_name, vendor_id, matchedTo: match?.matchedName || null, matchType: match?.matchType || null,
+        bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method,
+        status: payment_status?.toLowerCase() === "void" ? "void" : "completed",
+        notes, rowStatus: errors.length ? "error" as const : "new" as const, errors,
+      };
+    }).filter((r) => r.amount > 0 || r.errors.length > 0); // Skip zero-amount rows
+  }, [csvText, existingVendors, existingBills, billMap]);
 
   const counts = useMemo(() => {
     const c = { new: 0, error: 0 };
@@ -655,7 +688,6 @@ function PaymentsImportTab() {
     setImporting(true);
     let inserted = 0, errors = 0;
     try {
-      // Insert payments in batches
       for (let i = 0; i < valid.length; i += 50) {
         const batch = valid.slice(i, i + 50);
         const payloads = batch.map((r) => ({
@@ -702,10 +734,10 @@ function PaymentsImportTab() {
           </Label>
           <Input id="payment-csv" type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
         </div>
-        <p className="text-xs text-muted-foreground">Payments are additive — all valid rows will be inserted.</p>
+        <p className="text-xs text-muted-foreground">Payments are additive — all valid rows will be inserted. Uses "Bill Amount" for per-bill allocations.</p>
       </div>
 
-      <Textarea placeholder={`Paste CSV here...\nFormat: vendor_name, bill_number (optional), amount, payment_date, payment_method, status, notes`} rows={6} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
+      <Textarea placeholder="Paste Zoho Books Vendor Payments CSV export here, or upload the file above." rows={4} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
 
       {parsedRows.length > 0 && (
         <>
@@ -719,10 +751,11 @@ function PaymentsImportTab() {
                 <TableRow>
                   <TableHead>Status</TableHead>
                   <TableHead>Vendor</TableHead>
+                  <TableHead>Matched To</TableHead>
                   <TableHead>Bill #</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Method</TableHead>
+                  <TableHead>Mode</TableHead>
                   <TableHead>Issues</TableHead>
                 </TableRow>
               </TableHeader>
@@ -731,6 +764,14 @@ function PaymentsImportTab() {
                   <TableRow key={i} className={r.rowStatus === "error" ? "bg-destructive/10" : ""}>
                     <TableCell><StatusBadge status={r.rowStatus} /></TableCell>
                     <TableCell>{r.vendor_name}</TableCell>
+                    <TableCell>
+                      {r.matchedTo ? (
+                        <span className="text-xs">
+                          {r.matchedTo}
+                          {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
+                        </span>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell>{r.bill_number || "—"}</TableCell>
                     <TableCell>₹{r.amount.toLocaleString()}</TableCell>
                     <TableCell>{r.payment_date}</TableCell>
