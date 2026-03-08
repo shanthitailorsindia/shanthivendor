@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
-import { Upload, FileText, Users, CreditCard, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import { Upload, FileText, Users, CreditCard, AlertCircle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
 
 // --- CSV Parsing ---
 function parseCSV(text: string): string[][] {
