@@ -14,6 +14,7 @@ import PurchaseBillsPage from "@/pages/PurchaseBillsPage";
 import PaymentsPage from "@/pages/PaymentsPage";
 import ProductsPage from "@/pages/ProductsPage";
 import QRPriceTagsPage from "@/pages/QRPriceTagsPage";
+import ZohoImportPage from "@/pages/ZohoImportPage";
 import LoginPage from "@/pages/LoginPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
