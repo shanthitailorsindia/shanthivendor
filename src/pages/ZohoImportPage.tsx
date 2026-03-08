@@ -900,6 +900,11 @@ function PaymentsImportTab() {
               </TableBody>
             </Table>
           </div>
+          {importing && importProgress.total > 0 && (
+            <div className="text-sm text-muted-foreground">
+              Importing: {importProgress.current} / {importProgress.total} rows processed...
+            </div>
+          )}
           <Button onClick={handleImport} disabled={importing || counts.new === 0}>
             {importing ? <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & Reconciling...</> : <>Import {counts.new} Payments</>}
           </Button>
