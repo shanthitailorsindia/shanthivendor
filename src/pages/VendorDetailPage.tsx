@@ -29,6 +29,8 @@ const statusColor = (s: string) => {
 export default function VendorDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [editOpen, setEditOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: vendor, isLoading } = useQuery({
     queryKey: ["vendor-profile", id],
