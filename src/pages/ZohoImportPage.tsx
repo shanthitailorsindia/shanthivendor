@@ -927,40 +927,40 @@ function ResetDataSection() {
     const deleted: Record<string, number> = {};
     try {
       // 1. vendor_payment_terms
-      const { count: c1 } = await supabase.from("vendor_payment_terms").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["vendor_payment_terms"] = c1 || 0;
+      const r1 = await supabase.from("vendor_payment_terms").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_payment_terms"] = r1.data?.length || 0;
 
       // 2. vendor_contacts
-      const { count: c2 } = await supabase.from("vendor_contacts").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["vendor_contacts"] = c2 || 0;
+      const r2 = await supabase.from("vendor_contacts").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_contacts"] = r2.data?.length || 0;
 
       // 3. vendor_addresses
-      const { count: c3 } = await supabase.from("vendor_addresses").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["vendor_addresses"] = c3 || 0;
+      const r3 = await supabase.from("vendor_addresses").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_addresses"] = r3.data?.length || 0;
 
       // 4. vendor_payments
-      const { count: c4 } = await supabase.from("vendor_payments").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["vendor_payments"] = c4 || 0;
+      const r4 = await supabase.from("vendor_payments").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_payments"] = r4.data?.length || 0;
 
       // 5. payment_schedules
-      const { count: c5 } = await supabase.from("payment_schedules").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["payment_schedules"] = c5 || 0;
+      const r5 = await supabase.from("payment_schedules").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["payment_schedules"] = r5.data?.length || 0;
 
       // 6. expense_transactions — set vendor_id to null
-      const { count: c6 } = await supabase.from("expense_transactions").update({ vendor_id: null }).not("vendor_id", "is", null).select("id", { count: "exact", head: true });
-      deleted["expense_transactions (unlinked)"] = c6 || 0;
+      const r6 = await supabase.from("expense_transactions").update({ vendor_id: null } as any).not("vendor_id", "is", null).select("id");
+      deleted["expense_transactions (unlinked)"] = r6.data?.length || 0;
 
       // 7. purchase_bill_items
-      const { count: c7 } = await supabase.from("purchase_bill_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["purchase_bill_items"] = c7 || 0;
+      const r7 = await supabase.from("purchase_bill_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["purchase_bill_items"] = r7.data?.length || 0;
 
       // 8. purchase_bills
-      const { count: c8 } = await supabase.from("purchase_bills").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["purchase_bills"] = c8 || 0;
+      const r8 = await supabase.from("purchase_bills").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["purchase_bills"] = r8.data?.length || 0;
 
       // 9. vendor_profiles
-      const { count: c9 } = await supabase.from("vendor_profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id", { count: "exact", head: true });
-      deleted["vendor_profiles"] = c9 || 0;
+      const r9 = await supabase.from("vendor_profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_profiles"] = r9.data?.length || 0;
 
       const summary = Object.entries(deleted).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(", ");
       toast({ title: "Reset Complete", description: summary || "No records found to delete." });
