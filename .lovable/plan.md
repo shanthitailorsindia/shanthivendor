@@ -1,92 +1,90 @@
 
 
-# Intelligent Monthly Payment Planner for Dashboard
+# Purchase Bills: Edit, Delete, File Upload + Products: Bulk Upload
 
-## What You Already Have
-- `vendor_profiles` with `opening_balance`, `credit_limit`, `payment_terms`
-- `purchase_bills` with `due_date`, `total_amount`, `paid_amount`, `payment_status`
-- `vendor_payments` with `amount`, `due_date`, `status`
-- `vendor_balance_summary` view with `current_balance` per vendor
-- `calculate_vendor_balance` DB function
+## Part 1: Purchase Bills - Edit, Delete, and Bill File Upload
 
-## What to Build on Dashboard
+### 1A. Storage Bucket for Bill Uploads
+Create a Supabase storage bucket `purchase-bills` (public) so users can upload bill files (PDF/images) directly instead of pasting URLs.
 
-### 1. Monthly Payment Planner Widget
-A new section below the existing dashboard content that:
-- Fetches all **unpaid/partial bills** with their `due_date` and outstanding amounts
-- Groups them by **week** within the current month (Week 1-4)
-- Shows a **timeline view** with vendor name, bill number, due date, outstanding amount
-- Highlights **overdue** bills in red, **due this week** in amber, **upcoming** in default
-- Includes a **monthly budget input** field where you set your total payment budget for the month
-- Auto-distributes payments by priority: overdue first, then by due date, then by vendor credit limit proximity
+**Migration SQL:**
+- Create `purchase-bills` storage bucket
+- Add RLS policies for insert/select/delete on `storage.objects`
 
-### 2. Vendor Priority Score
-For each vendor with pending dues, calculate a priority based on:
-- **Days overdue** (higher = more urgent)
-- **Balance vs credit limit** ratio (closer to limit = more urgent)
-- **Payment terms** from vendor profile
-- Display as a sorted list: "Pay These First" section
+### 1B. Actions Column on Bills Table
+Replace the current "Bill" column with an **Actions** column containing 4 icon buttons per row:
+- **Eye** - View bill details (read-only dialog)
+- **Pencil** - Edit bill (full form dialog)
+- **Trash2** - Delete bill (confirmation dialog)
+- **QrCode** - Print QR tags for all products in the bill
 
-### 3. Cash Flow Forecast Chart
-A bar/area chart (using recharts, already installed) showing:
-- X-axis: weeks of current month
-- Bars: scheduled outgoing payments by week
-- Line: cumulative spend vs budget
-- Helps visualize payment load distribution
+### 1C. View Bill Dialog
+- Read-only dialog showing bill header (bill number, vendor, dates, status, payment info, notes)
+- Fetch and display `purchase_bill_items` in a table (product, code, qty, price, tax, total)
+- Show bill file preview/download link if uploaded
+- Display totals summary
 
-### 4. Suggested Payment Schedule Table
-Based on the monthly budget input:
-- Algorithm splits budget across weeks
-- Prioritizes overdue, then nearest due dates
-- Shows: Vendor | Bill | Due Date | Amount | Suggested Pay Date | Priority (High/Medium/Low)
-- "Defer" badge on bills that can safely wait (within payment terms)
+### 1D. Edit Bill Dialog
+- Full form dialog pre-filled with existing bill data
+- Fetch `purchase_bill_items` and load into the same line-item editor (reusing `ProductSearchInput`)
+- **Bill file upload**: Replace the URL input with a file upload input that uploads to `purchase-bills` bucket. Show existing file if present, with option to replace
+- On save: update `purchase_bills` row, delete old items, insert updated items
+- Support GST inclusive/exclusive toggle, discount, and all header fields
 
----
+### 1E. Delete Bill
+- `AlertDialog` confirmation: "This will permanently delete the bill and all its line items"
+- Delete `purchase_bill_items` by `bill_id`, then delete the `purchase_bills` row
+- Invalidate queries on success
 
-## Advisory: Features to Make a Complete Vendor Management System
+### 1F. QR Print from Bill
+- Dialog that fetches all `purchase_bill_items` for the bill, then fetches corresponding product data
+- **Sticker Format** selector (Jewellery Tag / 2 Across / 4 Across) - same 3 formats from QR Price Tags page
+- **Number of stickers** per product (default = quantity from bill item)
+- Preview grid + Print button
+- Reuses the same tag HTML generation logic from `QRPriceTagsPage`
 
-Beyond what you already have, here are recommendations:
-
-1. **Vendor Rating/Scoring** -- Track delivery reliability, pricing competitiveness, payment flexibility. Score vendors A/B/C.
-2. **Purchase Order Management** -- Create POs before bills. Track PO-to-bill matching and partial deliveries.
-3. **Recurring Bills** -- Auto-generate expected bills for vendors with regular supply schedules.
-4. **Credit Limit Alerts** -- Dashboard warnings when vendor balance approaches their credit limit.
-5. **Payment Reminders/Notifications** -- Auto email/SMS reminders for upcoming due dates.
-6. **Vendor Comparison Reports** -- Compare pricing across vendors for the same product categories.
-7. **GST/Tax Reports** -- Monthly GST input credit summary, GSTR-2 compatible exports.
-8. **Aging Analysis** -- Standard 30/60/90/120 day aging report for payables.
-9. **Bank Reconciliation** -- Match payments against bank statements.
-10. **Audit Trail** -- Log all bill edits, payment changes, and who made them.
+### 1G. Update Create Bill Form
+- Replace the "Bill URL" + "Bill Filename" fields with a **file upload** input
+- Upload file to `purchase-bills` bucket, store the public URL in `original_bill_url` and filename in `original_bill_filename`
 
 ---
 
-## Technical Plan (Implementation)
+## Part 2: Products - Bulk Upload
 
-### No DB Changes Required
-All data needed exists in `purchase_bills`, `vendor_profiles`, and `vendor_balance_summary`. The planner is purely a **client-side calculation** using existing queries.
+### 2A. Bulk Upload Dialog in Products Page
+Add a **Bulk Upload** button next to the "Add Product" button that opens a dialog with:
+- **CSV file upload** input (accepts .csv, .xlsx)
+- **Paste text area** for CSV data
+- Expected format header row: `name, item_code, cost_price, unit_price, hsn_code, gst_rate, quantity_in_stock, category_text, subcategory, product_type`
+- **Preview table** showing parsed rows before import (with validation status per row)
+- **Import** button to insert all valid rows
 
-### File Changes
-**`src/pages/Dashboard.tsx`** -- Add three new sections:
+### 2B. CSV Processing Logic
+- Parse CSV text (split by newlines and commas)
+- Validate required fields: `name`, `item_code`, `cost_price`, `unit_price`, `hsn_code`, `gst_rate`
+- Skip header row if detected
+- Show count of valid vs invalid rows
+- Insert valid products into `products` table with `is_active: true`
+- Report errors for failed rows (duplicate item_code, missing fields)
+- Invalidate products query on success
 
-1. **Monthly Budget Input + Payment Planner**
-   - State: `monthlyBudget` (number input, persisted to localStorage)
-   - Query: fetch all bills where `payment_status != 'paid'` with vendor names
-   - Compute priority score per bill, sort, and allocate budget
+---
 
-2. **Cash Flow Chart**
-   - Group unpaid bills by due_date week
-   - Render a `BarChart` + `Line` using recharts `ComposedChart`
-   - Config via `ChartContainer` from existing `chart.tsx`
+## Technical Details
 
-3. **Suggested Payment Schedule**
-   - Table showing prioritized bills with suggested pay dates
-   - Color-coded priority badges (High = overdue, Medium = due this month, Low = future)
-   - Running total column showing remaining budget after each payment
-
-### Algorithm (Priority Score)
+### New State Variables (PurchaseBillsPage)
 ```text
-score = (daysOverdue * 10) + (balanceRatio * 5) + (1 / paymentTerms * 3)
-where balanceRatio = currentBalance / creditLimit (capped at 1)
+viewBillId, editBillId, deleteBillId, qrBillId -- string | null for each dialog
 ```
-Bills sorted descending by score. Budget allocated top-down until exhausted.
 
+### New Mutations (PurchaseBillsPage)
+- `updateBill` -- update header + replace line items
+- `deleteBill` -- delete items then bill
+- `uploadBillFile` -- upload to storage bucket
+
+### Files Modified
+- `src/pages/PurchaseBillsPage.tsx` -- Add actions, view/edit/delete/QR dialogs, file upload
+- `src/pages/ProductsPage.tsx` -- Add bulk upload button and dialog
+
+### Database Migration
+- Create `purchase-bills` storage bucket with public access and RLS policies
