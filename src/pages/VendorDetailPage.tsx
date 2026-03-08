@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,12 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowLeft, Phone, Mail, Globe, CreditCard, Building2,
-  FileText, ExternalLink, MapPin, Users, IndianRupee, Pencil, Upload
+  ArrowLeft, Phone, Mail, Globe, CreditCard,
+  FileText, ExternalLink, Pencil, Upload
 } from "lucide-react";
 import { format } from "date-fns";
 import EditVendorDialog from "@/components/vendor/EditVendorDialog";
 import ImportBillsDialog from "@/components/vendor/ImportBillsDialog";
+import FYDateFilter, { type DateRange } from "@/components/vendor/FYDateFilter";
+import VendorStatement from "@/components/vendor/VendorStatement";
+import { fetchAllRows } from "@/lib/fetchAll";
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -26,20 +29,29 @@ const statusColor = (s: string) => {
   }
 };
 
+const inRange = (dateStr: string | null, range: DateRange) => {
+  if (!dateStr) return true;
+  const d = new Date(dateStr);
+  if (range.from && d < range.from) return false;
+  if (range.to) {
+    const end = new Date(range.to);
+    end.setHours(23, 59, 59, 999);
+    if (d > end) return false;
+  }
+  return true;
+};
+
 export default function VendorDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>({ from: undefined, to: undefined });
 
   const { data: vendor, isLoading } = useQuery({
     queryKey: ["vendor-profile", id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_profiles")
-        .select("*")
-        .eq("id", id!)
-        .single();
+      const { data, error } = await supabase.from("vendor_profiles").select("*").eq("id", id!).single();
       if (error) throw error;
       return data;
     },
@@ -49,11 +61,7 @@ export default function VendorDetailPage() {
   const { data: balanceSummary } = useQuery({
     queryKey: ["vendor-balance", id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_balance_summary")
-        .select("*")
-        .eq("id", id!)
-        .single();
+      const { data } = await supabase.from("vendor_balance_summary").select("*").eq("id", id!).single();
       return data;
     },
     enabled: !!id,
@@ -61,87 +69,54 @@ export default function VendorDetailPage() {
 
   const { data: bills } = useQuery({
     queryKey: ["vendor-bills", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("purchase_bills")
-        .select("*")
-        .eq("vendor_id", id!)
-        .order("bill_date", { ascending: false });
-      return data ?? [];
-    },
+    queryFn: () => fetchAllRows("purchase_bills", "*", { eq: { vendor_id: id! }, order: { column: "bill_date", ascending: false } }),
     enabled: !!id,
   });
 
   const { data: payments } = useQuery({
     queryKey: ["vendor-payments", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_payments")
-        .select("*")
-        .eq("vendor_id", id!)
-        .order("created_at", { ascending: false });
-      return data ?? [];
-    },
+    queryFn: () => fetchAllRows("vendor_payments", "*", { eq: { vendor_id: id! }, order: { column: "created_at", ascending: false } }),
     enabled: !!id,
   });
 
   const { data: contacts } = useQuery({
     queryKey: ["vendor-contacts", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_contacts")
-        .select("*")
-        .eq("vendor_id", id!);
-      return data ?? [];
-    },
+    queryFn: async () => { const { data } = await supabase.from("vendor_contacts").select("*").eq("vendor_id", id!); return data ?? []; },
     enabled: !!id,
   });
 
   const { data: addresses } = useQuery({
     queryKey: ["vendor-addresses", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_addresses")
-        .select("*")
-        .eq("vendor_id", id!);
-      return data ?? [];
-    },
+    queryFn: async () => { const { data } = await supabase.from("vendor_addresses").select("*").eq("vendor_id", id!); return data ?? []; },
     enabled: !!id,
   });
 
   const { data: documents } = useQuery({
     queryKey: ["vendor-documents", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_documents")
-        .select("*")
-        .eq("vendor_id", id!);
-      return data ?? [];
-    },
+    queryFn: async () => { const { data } = await supabase.from("vendor_documents").select("*").eq("vendor_id", id!); return data ?? []; },
     enabled: !!id,
   });
 
   const { data: billMap } = useQuery({
     queryKey: ["bill-map-for-vendor", id],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number").eq("vendor_id", id!);
+      const data = await fetchAllRows("purchase_bills", "id, bill_number", { eq: { vendor_id: id! } });
       const map: Record<string, string> = {};
-      data?.forEach(b => { map[b.id] = b.bill_number; });
+      data.forEach(b => { map[b.id] = b.bill_number; });
       return map;
     },
     enabled: !!id,
   });
 
-  if (isLoading) {
-    return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Loading...</div>;
-  }
+  // Filtered data
+  const filteredBills = useMemo(() => (bills ?? []).filter(b => inRange(b.bill_date, dateRange)), [bills, dateRange]);
+  const filteredPayments = useMemo(() => (payments ?? []).filter(p => inRange(p.payment_date ?? p.created_at, dateRange)), [payments, dateRange]);
 
-  if (!vendor) {
-    return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Vendor not found</div>;
-  }
+  if (isLoading) return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Loading...</div>;
+  if (!vendor) return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Vendor not found</div>;
 
-  const totalPurchases = bills?.reduce((s, b) => s + Number(b.total_amount), 0) ?? 0;
-  const totalPayments = payments?.reduce((s, p) => s + Number(p.payment_amount ?? p.amount), 0) ?? 0;
+  const totalPurchases = filteredBills.reduce((s, b) => s + Number(b.total_amount), 0);
+  const totalPayments = filteredPayments.reduce((s, p) => s + Number(p.payment_amount ?? p.amount), 0);
 
   return (
     <div>
@@ -154,19 +129,13 @@ export default function VendorDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="page-title">{vendor.company_name}</h1>
-              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${statusColor(vendor.status)}`}>
-                {vendor.status}
-              </span>
+              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${statusColor(vendor.status)}`}>{vendor.status}</span>
             </div>
             {vendor.category && <p className="page-subtitle">{vendor.category}</p>}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <Upload className="h-4 w-4 mr-1" /> Import Bills
-            </Button>
-            <Button size="sm" onClick={() => setEditOpen(true)}>
-              <Pencil className="h-4 w-4 mr-1" /> Edit Vendor
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4 mr-1" /> Import Bills</Button>
+            <Button size="sm" onClick={() => setEditOpen(true)}><Pencil className="h-4 w-4 mr-1" /> Edit Vendor</Button>
           </div>
         </div>
         <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
@@ -181,39 +150,39 @@ export default function VendorDetailPage() {
         </div>
       </div>
 
+      {/* Date Filter */}
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-muted-foreground">
+          {dateRange.from && dateRange.to
+            ? `Showing: ${format(dateRange.from, "dd MMM yyyy")} – ${format(dateRange.to, "dd MMM yyyy")}`
+            : "Showing: All Time"}
+        </p>
+        <FYDateFilter value={dateRange} onChange={setDateRange} />
+      </div>
+
       {/* Financial Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground mb-1">Opening Balance</p>
-            <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.opening_balance ?? vendor.opening_balance ?? 0))}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground mb-1">Current Balance</p>
-            <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.current_balance ?? 0))}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground mb-1">Total Purchases</p>
-            <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(totalPurchases)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground mb-1">Total Payments</p>
-            <p className="text-lg font-bold font-mono text-success">{formatCurrency(totalPayments)}</p>
-          </CardContent>
-        </Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground mb-1">Opening Balance</p>
+          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.opening_balance ?? vendor.opening_balance ?? 0))}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground mb-1">Current Balance</p>
+          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.current_balance ?? 0))}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground mb-1">Total Purchases</p>
+          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(totalPurchases)}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground mb-1">Total Payments</p>
+          <p className="text-lg font-bold font-mono text-success">{formatCurrency(totalPayments)}</p>
+        </CardContent></Card>
       </div>
 
       {/* Profile Details */}
       <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Profile Details</CardTitle>
-        </CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Profile Details</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div><span className="text-muted-foreground block text-xs">Registration No.</span><span className="font-medium text-foreground">{vendor.registration_number || "—"}</span></div>
@@ -230,8 +199,9 @@ export default function VendorDetailPage() {
       {/* Tabs */}
       <Tabs defaultValue="bills">
         <TabsList>
-          <TabsTrigger value="bills">Purchase Bills ({bills?.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="payments">Payments ({payments?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="bills">Bills ({filteredBills.length})</TabsTrigger>
+          <TabsTrigger value="payments">Payments ({filteredPayments.length})</TabsTrigger>
+          <TabsTrigger value="statement">Statement</TabsTrigger>
           <TabsTrigger value="contacts">Contacts ({contacts?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="addresses">Addresses ({addresses?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="documents">Documents ({documents?.length ?? 0})</TabsTrigger>
@@ -251,9 +221,9 @@ export default function VendorDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {bills?.length === 0 ? (
+                {filteredBills.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No purchase bills</td></tr>
-                ) : bills?.map(b => (
+                ) : filteredBills.map(b => (
                   <tr key={b.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono font-medium text-foreground">{b.bill_number}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(b.bill_date), "dd MMM yyyy")}</td>
@@ -284,9 +254,9 @@ export default function VendorDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {payments?.length === 0 ? (
+                {filteredPayments.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No payments</td></tr>
-                ) : payments?.map(p => (
+                ) : filteredPayments.map(p => (
                   <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 text-sm text-muted-foreground">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-success">{formatCurrency(Number(p.payment_amount ?? p.amount))}</td>
@@ -303,27 +273,29 @@ export default function VendorDetailPage() {
           </div>
         </TabsContent>
 
+        <TabsContent value="statement">
+          <VendorStatement vendor={vendor} bills={bills ?? []} payments={payments ?? []} dateRange={dateRange} />
+        </TabsContent>
+
         <TabsContent value="contacts">
           {contacts?.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">No contacts added</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {contacts?.map(c => (
-                <Card key={c.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-semibold text-foreground">{c.first_name} {c.last_name}</p>
-                        {c.designation && <p className="text-xs text-muted-foreground">{c.designation}{c.department ? ` · ${c.department}` : ""}</p>}
-                      </div>
-                      {c.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
+                <Card key={c.id}><CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold text-foreground">{c.first_name} {c.last_name}</p>
+                      {c.designation && <p className="text-xs text-muted-foreground">{c.designation}{c.department ? ` · ${c.department}` : ""}</p>}
                     </div>
-                    <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                      {c.phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3" />{c.phone}</div>}
-                      {c.email && <div className="flex items-center gap-1.5"><Mail className="h-3 w-3" />{c.email}</div>}
-                    </div>
-                  </CardContent>
-                </Card>
+                    {c.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
+                  </div>
+                  <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                    {c.phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3" />{c.phone}</div>}
+                    {c.email && <div className="flex items-center gap-1.5"><Mail className="h-3 w-3" />{c.email}</div>}
+                  </div>
+                </CardContent></Card>
               ))}
             </div>
           )}
@@ -335,20 +307,18 @@ export default function VendorDetailPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {addresses?.map(a => (
-                <Card key={a.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <Badge variant="outline" className="text-xs">{a.address_type}</Badge>
-                      {a.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
-                    </div>
-                    <div className="text-sm text-foreground">
-                      <p>{a.address_line1}</p>
-                      {a.address_line2 && <p>{a.address_line2}</p>}
-                      <p>{a.city}, {a.state} {a.postal_code}</p>
-                      <p className="text-muted-foreground">{a.country}</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <Card key={a.id}><CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <Badge variant="outline" className="text-xs">{a.address_type}</Badge>
+                    {a.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
+                  </div>
+                  <div className="text-sm text-foreground">
+                    <p>{a.address_line1}</p>
+                    {a.address_line2 && <p>{a.address_line2}</p>}
+                    <p>{a.city}, {a.state} {a.postal_code}</p>
+                    <p className="text-muted-foreground">{a.country}</p>
+                  </div>
+                </CardContent></Card>
               ))}
             </div>
           )}
@@ -360,20 +330,18 @@ export default function VendorDetailPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {documents?.map(d => (
-                <Card key={d.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="min-w-0">
-                        <p className="font-medium text-foreground truncate">{d.file_name}</p>
-                        <p className="text-xs text-muted-foreground">{d.document_type}</p>
-                      </div>
-                      <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 shrink-0">
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
+                <Card key={d.id}><CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{d.file_name}</p>
+                      <p className="text-xs text-muted-foreground">{d.document_type}</p>
                     </div>
-                    {d.file_size && <p className="text-xs text-muted-foreground mt-1">{(d.file_size / 1024).toFixed(1)} KB</p>}
-                  </CardContent>
-                </Card>
+                    <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 shrink-0">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  </div>
+                  {d.file_size && <p className="text-xs text-muted-foreground mt-1">{(d.file_size / 1024).toFixed(1)} KB</p>}
+                </CardContent></Card>
               ))}
             </div>
           )}
