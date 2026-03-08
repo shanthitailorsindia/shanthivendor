@@ -18,29 +18,23 @@ export default function PaymentsPage() {
   const { data: payments, isLoading } = useQuery({
     queryKey: ["vendor-payments"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_payments")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return await fetchAllRows("vendor_payments", "*", { order: { column: "created_at", ascending: false } });
     },
   });
 
   const { data: vendors } = useQuery({
     queryKey: ["vendor-profiles-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name").eq("status", "active");
-      return data ?? [];
+      return await fetchAllRows("vendor_profiles", "id, company_name", { eq: { status: "active" } });
     },
   });
 
   const { data: vendorMap } = useQuery({
     queryKey: ["vendor-profiles-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
+      const data = await fetchAllRows("vendor_profiles", "id, company_name");
       const map: Record<string, string> = {};
-      data?.forEach(v => { map[v.id] = v.company_name; });
+      data.forEach(v => { map[v.id] = v.company_name; });
       return map;
     },
   });
@@ -48,17 +42,16 @@ export default function PaymentsPage() {
   const { data: billsList } = useQuery({
     queryKey: ["bills-for-payment"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id, total_amount, paid_amount").neq("payment_status", "paid");
-      return data ?? [];
+      return await fetchAllRows("purchase_bills", "id, bill_number, vendor_id, total_amount, paid_amount", { neq: { payment_status: "paid" } });
     },
   });
 
   const { data: billMap } = useQuery({
     queryKey: ["bills-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number");
+      const data = await fetchAllRows("purchase_bills", "id, bill_number");
       const map: Record<string, string> = {};
-      data?.forEach(b => { map[b.id] = b.bill_number; });
+      data.forEach(b => { map[b.id] = b.bill_number; });
       return map;
     },
   });

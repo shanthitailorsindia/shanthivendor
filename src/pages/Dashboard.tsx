@@ -126,11 +126,11 @@ export default function Dashboard() {
   const { data: billsSummary } = useQuery({
     queryKey: ["bills-summary"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("total_amount, paid_amount, payment_status, status").limit(500);
-      const total = data?.reduce((s, b) => s + Number(b.total_amount), 0) ?? 0;
-      const paid = data?.reduce((s, b) => s + Number(b.paid_amount), 0) ?? 0;
-      const unpaid = data?.filter(b => b.payment_status === 'unpaid').length ?? 0;
-      return { total, paid, unpaid, count: data?.length ?? 0 };
+      const data = await fetchAllRows("purchase_bills", "total_amount, paid_amount, payment_status, status");
+      const total = data.reduce((s, b) => s + Number(b.total_amount), 0);
+      const paid = data.reduce((s, b) => s + Number(b.paid_amount), 0);
+      const unpaid = data.filter(b => b.payment_status === 'unpaid').length;
+      return { total, paid, unpaid, count: data.length };
     },
   });
 
