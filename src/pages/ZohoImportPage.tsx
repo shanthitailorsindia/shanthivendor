@@ -461,11 +461,27 @@ function BillsImportTab() {
     const actionable = parsedRows.filter((r) => r.rowStatus === "new" || r.rowStatus === "update");
     if (!actionable.length) return;
     setImporting(true);
-    let inserted = 0, updated = 0, errors = 0;
+    let inserted = 0, updated = 0, errors = 0, vendorsCreated = 0;
+
+    // Auto-create missing vendors
+    const createdVendorMap = new Map<string, string>();
+    const missingVendorNames = [...new Set(actionable.filter((r) => !r.vendor_id && r.vendor_name).map((r) => r.vendor_name))];
+    for (const name of missingVendorNames) {
+      const { data, error } = await supabase.from("vendor_profiles").insert({ company_name: name, status: "active" }).select("id").single();
+      if (data) { createdVendorMap.set(normalizeForMatch(name), data.id); vendorsCreated++; }
+      else if (error) console.error("Failed to create vendor:", name, error.message);
+    }
+
     try {
       for (const r of actionable) {
+        let vendorId = r.vendor_id;
+        if (!vendorId && r.vendor_name) {
+          vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
+        }
+        if (!vendorId) { errors++; continue; }
+
         const payload = {
-          vendor_id: r.vendor_id!,
+          vendor_id: vendorId,
           bill_number: r.bill_number,
           bill_date: r.bill_date,
           due_date: r.due_date || r.bill_date,
@@ -489,9 +505,10 @@ function BillsImportTab() {
           if (error) errors++; else inserted++;
         }
       }
-      toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${errors} errors` });
+      toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${vendorsCreated} vendors created, ${errors} errors` });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills_numbers"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_profiles_all"] });
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
