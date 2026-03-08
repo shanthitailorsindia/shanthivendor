@@ -61,7 +61,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="p-4 border-t border-sidebar-border">
-          <p className="text-xs text-sidebar-muted">© 2026 VendorHub</p>
+          <p className="text-xs text-sidebar-muted">© 2026 Shanthi Tailors</p>
         </div>
       </aside>
 
