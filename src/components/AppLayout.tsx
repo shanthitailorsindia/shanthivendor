@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Upload,
   BarChart3,
+  ExternalLink,
 } from "lucide-react";
 import shanthiLogo from "@/assets/shanthi-logo.png";
 
