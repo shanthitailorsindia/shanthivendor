@@ -723,20 +723,25 @@ function PaymentsImportTab() {
       // Fuzzy match vendor
       const match = vendor_name ? fuzzyMatch(vendor_name, existingVendors) : null;
       const vendor_id = match?.id || null;
-      const billInfo = bill_number ? billMap.get(bill_number) : null;
+      // Use composite key for bill lookup
+      const billInfo = (bill_number && vendor_id) ? billMap.get(`${vendor_id}::${bill_number}`) : null;
 
       const errors: string[] = [];
+      const warnings: string[] = [];
       if (!vendor_name) errors.push("Missing vendor");
-      if (!vendor_id) errors.push("Vendor not found");
       if (!amount) errors.push("Missing amount");
-      if (bill_number && !billInfo) errors.push("Bill not found");
       if (!payment_date) errors.push("Missing date");
+      // Vendor not found is a warning (will auto-create), not an error
+      if (vendor_name && !vendor_id) warnings.push("Will create vendor");
+      // Bill not found is a warning (payment imports without bill link), not an error
+      if (bill_number && !billInfo) warnings.push("Bill not linked");
 
       return {
         vendor_name, vendor_id, matchedTo: match?.matchedName || null, matchType: match?.matchType || null,
         bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method,
         status: payment_status?.toLowerCase() === "void" ? "void" : "completed",
-        notes, rowStatus: errors.length ? "error" as const : "new" as const, errors,
+        notes, warnings,
+        rowStatus: errors.length ? "error" as const : "new" as const, errors,
       };
     }).filter((r) => r.amount > 0 || r.errors.length > 0); // Skip zero-amount rows
   }, [csvText, existingVendors, existingBills, billMap]);
