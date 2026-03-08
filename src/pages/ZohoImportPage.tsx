@@ -567,6 +567,8 @@ function BillsImportTab() {
                           {r.matchedTo}
                           {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
                         </span>
+                      ) : r.vendor_name ? (
+                        <Badge className="bg-blue-600 text-white text-[10px] px-1">Will Create</Badge>
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="font-medium">{r.bill_number}</TableCell>
