@@ -15,6 +15,7 @@ import PaymentsPage from "@/pages/PaymentsPage";
 import ProductsPage from "@/pages/ProductsPage";
 import QRPriceTagsPage from "@/pages/QRPriceTagsPage";
 import ZohoImportPage from "@/pages/ZohoImportPage";
+import GSTReportsPage from "@/pages/GSTReportsPage";
 import LoginPage from "@/pages/LoginPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
@@ -62,6 +63,7 @@ function AuthWrapper() {
         <Route path="/purchase-bills" element={<PurchaseBillsPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/products" element={<ProductsPage />} />
+        <Route path="/gst-reports" element={<GSTReportsPage />} />
         <Route path="/qr-price-tags" element={<QRPriceTagsPage />} />
         <Route path="/zoho-import" element={<ZohoImportPage />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

@@ -50,10 +50,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary mb-4">
-            <LogIn className="h-6 w-6" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">VendorHub</h1>
+          <img src="/shanthi-logo.png" alt="Shanthi Tailors" className="h-16 w-16 mx-auto mb-3 object-contain" />
+          <h1 className="text-2xl font-bold text-foreground">Shanthi Tailors</h1>
+          <p className="text-xs text-muted-foreground font-medium">Purchase Management</p>
           <p className="text-sm text-muted-foreground mt-1">
             {mode === "login" && "Sign in to your account"}
             {mode === "signup" && "Create a new account"}
