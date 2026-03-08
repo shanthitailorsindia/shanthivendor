@@ -31,11 +31,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-sidebar flex flex-col shrink-0">
-        <div className="p-5 border-b border-sidebar-border">
-          <h1 className="text-lg font-bold text-sidebar-primary tracking-wide">
-            VendorHub
-          </h1>
-          <p className="text-xs text-sidebar-muted mt-0.5">Management System</p>
+        <div className="p-4 border-b border-sidebar-border flex items-center gap-3">
+          <img src={shanthiLogo} alt="Shanthi Tailors" className="h-10 w-10 rounded-lg bg-white/10 object-contain" />
+          <div>
+            <h1 className="text-sm font-bold text-sidebar-primary tracking-wide leading-tight">
+              Shanthi Tailors
+            </h1>
+            <p className="text-[10px] text-sidebar-muted">Purchase Management</p>
+          </div>
         </div>
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
