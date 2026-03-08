@@ -6,9 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Phone, Mail, Globe, CreditCard,
-  FileText, ExternalLink, Pencil, Upload
+  FileText, ExternalLink, Pencil, Upload,
+  Building2, IndianRupee, Calendar, MapPin,
+  User, Clock, TrendingUp, TrendingDown,
+  Receipt, Banknote, Hash
 } from "lucide-react";
 import { format } from "date-fns";
 import EditVendorDialog from "@/components/vendor/EditVendorDialog";
@@ -22,10 +26,10 @@ const formatCurrency = (n: number) =>
 
 const statusColor = (s: string) => {
   switch (s) {
-    case "paid": return "bg-success/10 text-success";
-    case "partial": return "bg-warning/10 text-warning";
-    case "active": return "bg-success/10 text-success";
-    default: return "bg-destructive/10 text-destructive";
+    case "paid": return "bg-success/15 text-success border-success/20";
+    case "partial": return "bg-warning/15 text-warning border-warning/20";
+    case "active": return "bg-success/15 text-success border-success/20";
+    default: return "bg-destructive/15 text-destructive border-destructive/20";
   }
 };
 
@@ -108,240 +112,405 @@ export default function VendorDetailPage() {
     enabled: !!id,
   });
 
-  // Filtered data
   const filteredBills = useMemo(() => (bills ?? []).filter(b => inRange(b.bill_date, dateRange)), [bills, dateRange]);
   const filteredPayments = useMemo(() => (payments ?? []).filter(p => inRange(p.payment_date ?? p.created_at, dateRange)), [payments, dateRange]);
 
-  if (isLoading) return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Loading...</div>;
-  if (!vendor) return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Vendor not found</div>;
+  if (isLoading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
+        <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading vendor details...</p>
+      </div>
+    );
+  }
+
+  if (!vendor) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
+        <Building2 className="h-12 w-12 text-muted-foreground/30" />
+        <p className="text-muted-foreground font-medium">Vendor not found</p>
+        <Button variant="outline" size="sm" onClick={() => navigate("/vendors")}>Back to Vendors</Button>
+      </div>
+    );
+  }
 
   const totalPurchases = filteredBills.reduce((s, b) => s + Number(b.total_amount), 0);
   const totalPayments = filteredPayments.reduce((s, p) => s + Number(p.payment_amount ?? p.amount), 0);
+  const openingBal = Number(balanceSummary?.opening_balance ?? vendor.opening_balance ?? 0);
+  const currentBal = Number(balanceSummary?.current_balance ?? 0);
 
   return (
-    <div>
-      {/* Header */}
-      <div className="page-header">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/vendors")} className="mb-3 -ml-2">
-          <ArrowLeft className="h-4 w-4 mr-1" />Back to Vendors
-        </Button>
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="page-title">{vendor.company_name}</h1>
-              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${statusColor(vendor.status)}`}>{vendor.status}</span>
+    <div className="space-y-6">
+      {/* Back Nav */}
+      <Button variant="ghost" size="sm" onClick={() => navigate("/vendors")} className="-ml-2 text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4 mr-1" />Back to Vendors
+      </Button>
+
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary via-primary/90 to-primary/70 p-6 md:p-8 text-primary-foreground">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-40" />
+        <div className="relative">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="h-14 w-14 rounded-xl bg-accent/20 backdrop-blur-sm flex items-center justify-center border border-primary-foreground/10">
+                <span className="text-xl font-bold text-accent">{vendor.company_name?.charAt(0)?.toUpperCase()}</span>
+              </div>
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h1 className="text-2xl md:text-3xl font-bold">{vendor.company_name}</h1>
+                  <Badge className={`text-[10px] uppercase tracking-wider ${vendor.status === 'active' ? 'bg-success/20 text-success border-success/30' : 'bg-primary-foreground/20 text-primary-foreground/70'}`}>
+                    {vendor.status}
+                  </Badge>
+                </div>
+                {vendor.category && <p className="text-primary-foreground/60 text-sm">{vendor.category}</p>}
+
+                {/* Contact Info Row */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-primary-foreground/70">
+                  {vendor.phone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{vendor.phone}</span>}
+                  {vendor.email && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{vendor.email}</span>}
+                  {vendor.website && (
+                    <a href={vendor.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                      <Globe className="h-3.5 w-3.5" />{vendor.website}
+                    </a>
+                  )}
+                  {vendor.tax_id && <span className="flex items-center gap-1.5"><CreditCard className="h-3.5 w-3.5" />GSTIN: {vendor.tax_id}</span>}
+                </div>
+              </div>
             </div>
-            {vendor.category && <p className="page-subtitle">{vendor.category}</p>}
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}
+                className="bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20">
+                <Upload className="h-4 w-4 mr-1" /> Import Bills
+              </Button>
+              <Button size="sm" onClick={() => setEditOpen(true)}
+                className="bg-accent text-accent-foreground hover:bg-accent/90">
+                <Pencil className="h-4 w-4 mr-1" /> Edit
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4 mr-1" /> Import Bills</Button>
-            <Button size="sm" onClick={() => setEditOpen(true)}><Pencil className="h-4 w-4 mr-1" /> Edit Vendor</Button>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
-          {vendor.phone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{vendor.phone}</span>}
-          {vendor.email && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{vendor.email}</span>}
-          {vendor.website && (
-            <a href={vendor.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-primary">
-              <Globe className="h-3.5 w-3.5" />{vendor.website}
-            </a>
-          )}
-          {vendor.tax_id && <span className="flex items-center gap-1.5"><CreditCard className="h-3.5 w-3.5" />GSTIN: {vendor.tax_id}</span>}
         </div>
       </div>
 
-      {/* Date Filter */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Date Filter Bar */}
+      <div className="flex items-center justify-between bg-card rounded-lg border px-4 py-3">
         <p className="text-sm text-muted-foreground">
           {dateRange.from && dateRange.to
-            ? `Showing: ${format(dateRange.from, "dd MMM yyyy")} – ${format(dateRange.to, "dd MMM yyyy")}`
-            : "Showing: All Time"}
+            ? `📅 ${format(dateRange.from, "dd MMM yyyy")} – ${format(dateRange.to, "dd MMM yyyy")}`
+            : "📅 All Time"}
         </p>
         <FYDateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* Financial Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card><CardContent className="p-4">
-          <p className="text-xs text-muted-foreground mb-1">Opening Balance</p>
-          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.opening_balance ?? vendor.opening_balance ?? 0))}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <p className="text-xs text-muted-foreground mb-1">Current Balance</p>
-          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(Number(balanceSummary?.current_balance ?? 0))}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Purchases</p>
-          <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(totalPurchases)}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Payments</p>
-          <p className="text-lg font-bold font-mono text-success">{formatCurrency(totalPayments)}</p>
-        </CardContent></Card>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-l-4 border-l-primary">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <IndianRupee className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Opening Balance</span>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground">{formatCurrency(openingBal)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-accent">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-accent" />
+              </div>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Current Balance</span>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground">{formatCurrency(currentBal)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-destructive">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+                <Receipt className="h-4 w-4 text-destructive" />
+              </div>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Total Purchases</span>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground">{formatCurrency(totalPurchases)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{filteredBills.length} bills</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-success">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="h-8 w-8 rounded-lg bg-success/10 flex items-center justify-center">
+                <Banknote className="h-4 w-4 text-success" />
+              </div>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Total Payments</span>
+            </div>
+            <p className="text-xl font-bold font-mono text-success">{formatCurrency(totalPayments)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{filteredPayments.length} payments</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Profile Details */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3"><CardTitle className="text-base">Profile Details</CardTitle></CardHeader>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-primary" />
+            Profile Details
+          </CardTitle>
+        </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div><span className="text-muted-foreground block text-xs">Registration No.</span><span className="font-medium text-foreground">{vendor.registration_number || "—"}</span></div>
-            <div><span className="text-muted-foreground block text-xs">Credit Limit</span><span className="font-medium text-foreground">{formatCurrency(Number(vendor.credit_limit ?? 0))}</span></div>
-            <div><span className="text-muted-foreground block text-xs">Payment Terms</span><span className="font-medium text-foreground">{vendor.payment_terms} days</span></div>
-            <div><span className="text-muted-foreground block text-xs">Preferred Payment</span><span className="font-medium text-foreground">{vendor.preferred_payment_method || "—"}</span></div>
-            <div><span className="text-muted-foreground block text-xs">Currency</span><span className="font-medium text-foreground">{vendor.preferred_currency || "INR"}</span></div>
-            <div><span className="text-muted-foreground block text-xs">Opening Bal. Date</span><span className="font-medium text-foreground">{vendor.opening_balance_date ? format(new Date(vendor.opening_balance_date), "dd MMM yyyy") : "—"}</span></div>
-            <div className="col-span-2"><span className="text-muted-foreground block text-xs">Notes</span><span className="font-medium text-foreground">{vendor.notes || "—"}</span></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+            {[
+              { label: "Registration No.", value: vendor.registration_number, icon: Hash },
+              { label: "Credit Limit", value: formatCurrency(Number(vendor.credit_limit ?? 0)), icon: CreditCard },
+              { label: "Payment Terms", value: `${vendor.payment_terms} days`, icon: Clock },
+              { label: "Preferred Payment", value: vendor.preferred_payment_method || "—", icon: Banknote },
+              { label: "Currency", value: vendor.preferred_currency || "INR", icon: IndianRupee },
+              { label: "Opening Bal. Date", value: vendor.opening_balance_date ? format(new Date(vendor.opening_balance_date), "dd MMM yyyy") : "—", icon: Calendar },
+            ].map(item => (
+              <div key={item.label} className="flex items-start gap-2.5">
+                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                  <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground block">{item.label}</span>
+                  <span className="text-sm font-medium text-foreground">{item.value || "—"}</span>
+                </div>
+              </div>
+            ))}
+            {vendor.notes && (
+              <div className="col-span-2 flex items-start gap-2.5">
+                <div className="h-7 w-7 rounded bg-accent/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <FileText className="h-3.5 w-3.5 text-accent" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground block">Notes</span>
+                  <span className="text-sm text-foreground">{vendor.notes}</span>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="bills">
-        <TabsList>
-          <TabsTrigger value="bills">Bills ({filteredBills.length})</TabsTrigger>
-          <TabsTrigger value="payments">Payments ({filteredPayments.length})</TabsTrigger>
-          <TabsTrigger value="statement">Statement</TabsTrigger>
-          <TabsTrigger value="contacts">Contacts ({contacts?.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="addresses">Addresses ({addresses?.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="documents">Documents ({documents?.length ?? 0})</TabsTrigger>
+      <Tabs defaultValue="bills" className="space-y-4">
+        <TabsList className="bg-card border p-1 h-auto flex-wrap">
+          <TabsTrigger value="bills" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <Receipt className="h-3.5 w-3.5" />Bills ({filteredBills.length})
+          </TabsTrigger>
+          <TabsTrigger value="payments" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <Banknote className="h-3.5 w-3.5" />Payments ({filteredPayments.length})
+          </TabsTrigger>
+          <TabsTrigger value="statement" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <FileText className="h-3.5 w-3.5" />Statement
+          </TabsTrigger>
+          <TabsTrigger value="contacts" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <User className="h-3.5 w-3.5" />Contacts ({contacts?.length ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="addresses" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <MapPin className="h-3.5 w-3.5" />Addresses ({addresses?.length ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="documents" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
+            <FileText className="h-3.5 w-3.5" />Documents ({documents?.length ?? 0})
+          </TabsTrigger>
         </TabsList>
 
+        {/* Bills Tab */}
         <TabsContent value="bills">
-          <div className="data-table-container overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Bill #</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Due Date</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Paid</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredBills.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No purchase bills</td></tr>
-                ) : filteredBills.map(b => (
-                  <tr key={b.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono font-medium text-foreground">{b.bill_number}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(b.bill_date), "dd MMM yyyy")}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(b.due_date), "dd MMM yyyy")}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-foreground">{formatCurrency(Number(b.total_amount))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-success">{formatCurrency(Number(b.paid_amount))}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${statusColor(b.payment_status)}`}>{b.payment_status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Bill #</th>
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Due Date</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Paid</th>
+                      <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {filteredBills.length === 0 ? (
+                      <tr><td colSpan={6} className="text-center py-12">
+                        <Receipt className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No purchase bills found</p>
+                      </td></tr>
+                    ) : filteredBills.map(b => (
+                      <tr key={b.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3 text-sm font-mono font-medium text-primary">{b.bill_number}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(b.bill_date), "dd MMM yyyy")}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{format(new Date(b.due_date), "dd MMM yyyy")}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-foreground">{formatCurrency(Number(b.total_amount))}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-success">{formatCurrency(Number(b.paid_amount))}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${statusColor(b.payment_status)}`}>
+                            {b.payment_status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
+        {/* Payments Tab */}
         <TabsContent value="payments">
-          <div className="data-table-container overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Amount</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Method</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Bill Ref</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredPayments.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No payments</td></tr>
-                ) : filteredPayments.map(p => (
-                  <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-success">{formatCurrency(Number(p.payment_amount ?? p.amount))}</td>
-                    <td className="px-4 py-3 text-sm text-foreground">{p.payment_method || "—"}</td>
-                    <td className="px-4 py-3 text-sm font-mono text-muted-foreground">{p.bill_id ? (billMap?.[p.bill_id] ?? "—") : "—"}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${statusColor(p.status)}`}>{p.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[200px]">{p.notes || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Amount</th>
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Method</th>
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Bill Ref</th>
+                      <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                      <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {filteredPayments.length === 0 ? (
+                      <tr><td colSpan={6} className="text-center py-12">
+                        <Banknote className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No payments found</p>
+                      </td></tr>
+                    ) : filteredPayments.map(p => (
+                      <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-success">{formatCurrency(Number(p.payment_amount ?? p.amount))}</td>
+                        <td className="px-4 py-3 text-sm text-foreground capitalize">{p.payment_method || "—"}</td>
+                        <td className="px-4 py-3 text-sm font-mono text-primary">{p.bill_id ? (billMap?.[p.bill_id] ?? "—") : "—"}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${statusColor(p.status)}`}>
+                            {p.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[200px]">{p.notes || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
+        {/* Statement Tab */}
         <TabsContent value="statement">
           <VendorStatement vendor={vendor} bills={bills ?? []} payments={payments ?? []} dateRange={dateRange} />
         </TabsContent>
 
+        {/* Contacts Tab */}
         <TabsContent value="contacts">
           {contacts?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">No contacts added</div>
+            <Card>
+              <CardContent className="py-12 text-center">
+                <User className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No contacts added</p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {contacts?.map(c => (
-                <Card key={c.id}><CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-semibold text-foreground">{c.first_name} {c.last_name}</p>
-                      {c.designation && <p className="text-xs text-muted-foreground">{c.designation}{c.department ? ` · ${c.department}` : ""}</p>}
+                <Card key={c.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <User className="h-4 w-4 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-foreground">{c.first_name} {c.last_name}</p>
+                          {c.designation && <p className="text-xs text-muted-foreground">{c.designation}{c.department ? ` · ${c.department}` : ""}</p>}
+                        </div>
+                      </div>
+                      {c.is_primary && <Badge className="bg-accent/15 text-accent border-accent/20 text-[10px]">Primary</Badge>}
                     </div>
-                    {c.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
-                  </div>
-                  <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                    {c.phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3" />{c.phone}</div>}
-                    {c.email && <div className="flex items-center gap-1.5"><Mail className="h-3 w-3" />{c.email}</div>}
-                  </div>
-                </CardContent></Card>
+                    <Separator className="my-3" />
+                    <div className="space-y-1.5 text-sm text-muted-foreground">
+                      {c.phone && <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-primary/50" />{c.phone}</div>}
+                      {c.email && <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-primary/50" />{c.email}</div>}
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}
         </TabsContent>
 
+        {/* Addresses Tab */}
         <TabsContent value="addresses">
           {addresses?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">No addresses added</div>
+            <Card>
+              <CardContent className="py-12 text-center">
+                <MapPin className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No addresses added</p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {addresses?.map(a => (
-                <Card key={a.id}><CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <Badge variant="outline" className="text-xs">{a.address_type}</Badge>
-                    {a.is_primary && <Badge variant="secondary" className="text-xs">Primary</Badge>}
-                  </div>
-                  <div className="text-sm text-foreground">
-                    <p>{a.address_line1}</p>
-                    {a.address_line2 && <p>{a.address_line2}</p>}
-                    <p>{a.city}, {a.state} {a.postal_code}</p>
-                    <p className="text-muted-foreground">{a.country}</p>
-                  </div>
-                </CardContent></Card>
+                <Card key={a.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <MapPin className="h-4 w-4 text-primary" />
+                        </div>
+                        <Badge variant="outline" className="text-[10px] uppercase tracking-wider">{a.address_type}</Badge>
+                      </div>
+                      {a.is_primary && <Badge className="bg-accent/15 text-accent border-accent/20 text-[10px]">Primary</Badge>}
+                    </div>
+                    <div className="text-sm text-foreground leading-relaxed">
+                      <p>{a.address_line1}</p>
+                      {a.address_line2 && <p>{a.address_line2}</p>}
+                      <p className="font-medium">{a.city}, {a.state} {a.postal_code}</p>
+                      <p className="text-muted-foreground">{a.country}</p>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}
         </TabsContent>
 
+        {/* Documents Tab */}
         <TabsContent value="documents">
           {documents?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">No documents uploaded</div>
+            <Card>
+              <CardContent className="py-12 text-center">
+                <FileText className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No documents uploaded</p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {documents?.map(d => (
-                <Card key={d.id}><CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0">
-                      <p className="font-medium text-foreground truncate">{d.file_name}</p>
-                      <p className="text-xs text-muted-foreground">{d.document_type}</p>
+                <Card key={d.id} className="hover:shadow-md transition-shadow group">
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-accent" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-foreground truncate">{d.file_name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{d.document_type}</p>
+                        {d.file_size && <p className="text-[10px] text-muted-foreground mt-1">{(d.file_size / 1024).toFixed(1)} KB</p>}
+                      </div>
+                      <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 opacity-50 group-hover:opacity-100 transition-opacity shrink-0">
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
                     </div>
-                    <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 shrink-0">
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </div>
-                  {d.file_size && <p className="text-xs text-muted-foreground mt-1">{(d.file_size / 1024).toFixed(1)} KB</p>}
-                </CardContent></Card>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}
