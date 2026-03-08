@@ -8,6 +8,7 @@ import {
   QrCode,
   Package,
   ChevronRight,
+  Upload,
 } from "lucide-react";
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { to: "/payments", label: "Payments", icon: CreditCard },
   { to: "/products", label: "Products", icon: Package },
   { to: "/qr-price-tags", label: "QR Price Tags", icon: QrCode },
+  { to: "/zoho-import", label: "Zoho Import", icon: Upload },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
