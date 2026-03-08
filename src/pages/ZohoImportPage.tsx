@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
-import { Upload, FileText, Users, CreditCard, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import { Upload, FileText, Users, CreditCard, AlertCircle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
 
 // --- CSV Parsing ---
 function parseCSV(text: string): string[][] {
@@ -881,6 +885,162 @@ function PaymentsImportTab() {
 }
 
 // ============================================================
+// RESET DATA SECTION
+// ============================================================
+function ResetDataSection() {
+  const queryClient = useQueryClient();
+  const [showDialog, setShowDialog] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [resetting, setResetting] = useState(false);
+
+  const { data: counts, isLoading } = useQuery({
+    queryKey: ["reset_data_counts"],
+    queryFn: async () => {
+      const [vendors, bills, billItems, payments, schedules, expenses, contacts, addresses, payTerms] = await Promise.all([
+        supabase.from("vendor_profiles").select("id", { count: "exact", head: true }),
+        supabase.from("purchase_bills").select("id", { count: "exact", head: true }),
+        supabase.from("purchase_bill_items").select("id", { count: "exact", head: true }),
+        supabase.from("vendor_payments").select("id", { count: "exact", head: true }),
+        supabase.from("payment_schedules").select("id", { count: "exact", head: true }),
+        supabase.from("expense_transactions").select("id", { count: "exact", head: true }),
+        supabase.from("vendor_contacts").select("id", { count: "exact", head: true }),
+        supabase.from("vendor_addresses").select("id", { count: "exact", head: true }),
+        supabase.from("vendor_payment_terms").select("id", { count: "exact", head: true }),
+      ]);
+      return {
+        vendors: vendors.count || 0,
+        bills: bills.count || 0,
+        billItems: billItems.count || 0,
+        payments: payments.count || 0,
+        schedules: schedules.count || 0,
+        expenses: expenses.count || 0,
+        contacts: contacts.count || 0,
+        addresses: addresses.count || 0,
+        payTerms: payTerms.count || 0,
+      };
+    },
+  });
+
+  const handleReset = async () => {
+    if (confirmText !== "RESET") return;
+    setResetting(true);
+    const deleted: Record<string, number> = {};
+    try {
+      // 1. vendor_payment_terms
+      const r1 = await supabase.from("vendor_payment_terms").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_payment_terms"] = r1.data?.length || 0;
+
+      // 2. vendor_contacts
+      const r2 = await supabase.from("vendor_contacts").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_contacts"] = r2.data?.length || 0;
+
+      // 3. vendor_addresses
+      const r3 = await supabase.from("vendor_addresses").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_addresses"] = r3.data?.length || 0;
+
+      // 4. vendor_payments
+      const r4 = await supabase.from("vendor_payments").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_payments"] = r4.data?.length || 0;
+
+      // 5. payment_schedules
+      const r5 = await supabase.from("payment_schedules").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["payment_schedules"] = r5.data?.length || 0;
+
+      // 6. expense_transactions — set vendor_id to null
+      const r6 = await supabase.from("expense_transactions").update({ vendor_id: null } as any).not("vendor_id", "is", null).select("id");
+      deleted["expense_transactions (unlinked)"] = r6.data?.length || 0;
+
+      // 7. purchase_bill_items
+      const r7 = await supabase.from("purchase_bill_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["purchase_bill_items"] = r7.data?.length || 0;
+
+      // 8. purchase_bills
+      const r8 = await supabase.from("purchase_bills").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["purchase_bills"] = r8.data?.length || 0;
+
+      // 9. vendor_profiles
+      const r9 = await supabase.from("vendor_profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").select("id");
+      deleted["vendor_profiles"] = r9.data?.length || 0;
+
+      const summary = Object.entries(deleted).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(", ");
+      toast({ title: "Reset Complete", description: summary || "No records found to delete." });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Reset Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setResetting(false);
+      setShowDialog(false);
+      setConfirmText("");
+    }
+  };
+
+  const total = counts ? counts.vendors + counts.bills + counts.billItems + counts.payments + counts.schedules + counts.contacts + counts.addresses + counts.payTerms : 0;
+
+  return (
+    <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2 text-destructive"><Trash2 className="h-4 w-4" /> Reset All Import Data</h3>
+          <p className="text-sm text-muted-foreground">Delete all vendors, bills, and payments to re-import fresh. Products are NOT affected.</p>
+        </div>
+        <Button variant="destructive" size="sm" onClick={() => setShowDialog(true)} disabled={isLoading || total === 0}>
+          Reset Data
+        </Button>
+      </div>
+
+      {counts && total > 0 && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {counts.vendors > 0 && <Badge variant="outline">Vendors: {counts.vendors}</Badge>}
+          {counts.bills > 0 && <Badge variant="outline">Bills: {counts.bills}</Badge>}
+          {counts.billItems > 0 && <Badge variant="outline">Bill Items: {counts.billItems}</Badge>}
+          {counts.payments > 0 && <Badge variant="outline">Payments: {counts.payments}</Badge>}
+          {counts.schedules > 0 && <Badge variant="outline">Schedules: {counts.schedules}</Badge>}
+          {counts.expenses > 0 && <Badge variant="outline">Expenses (unlink): {counts.expenses}</Badge>}
+          {counts.contacts > 0 && <Badge variant="outline">Contacts: {counts.contacts}</Badge>}
+          {counts.addresses > 0 && <Badge variant="outline">Addresses: {counts.addresses}</Badge>}
+          {counts.payTerms > 0 && <Badge variant="outline">Pay Terms: {counts.payTerms}</Badge>}
+        </div>
+      )}
+
+      <AlertDialog open={showDialog} onOpenChange={setShowDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>⚠️ Delete All Vendor/Bill/Payment Data?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>This will permanently delete:</p>
+              <ul className="list-disc pl-5 space-y-1 text-sm">
+                <li>{counts?.vendors || 0} vendor profiles + contacts, addresses, payment terms</li>
+                <li>{counts?.bills || 0} purchase bills + {counts?.billItems || 0} line items</li>
+                <li>{counts?.payments || 0} vendor payments + {counts?.schedules || 0} payment schedules</li>
+                <li>{counts?.expenses || 0} expense transactions will have vendor_id set to NULL</li>
+              </ul>
+              <p className="font-medium">Products will NOT be touched.</p>
+              <p className="mt-3">Type <strong>RESET</strong> to confirm:</p>
+              <Input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="Type RESET"
+                className="mt-1"
+              />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={handleReset}
+              disabled={confirmText !== "RESET" || resetting}
+            >
+              {resetting ? <><RefreshCw className="h-4 w-4 animate-spin" /> Deleting...</> : "Delete Everything"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN PAGE
 // ============================================================
 export default function ZohoImportPage() {
@@ -890,6 +1050,8 @@ export default function ZohoImportPage() {
         <h1 className="text-2xl font-bold tracking-tight">Zoho Books Import</h1>
         <p className="text-muted-foreground">Import vendors, purchase bills, and payments from Zoho Books CSV exports.</p>
       </div>
+
+      <ResetDataSection />
 
       <div className="bg-accent/50 border border-border rounded-lg p-4 text-sm space-y-1">
         <p className="font-medium flex items-center gap-2"><AlertCircle className="h-4 w-4" /> Import Order Matters</p>
