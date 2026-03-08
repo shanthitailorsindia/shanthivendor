@@ -5526,6 +5526,7 @@ export type Database = {
           customer_id: string | null
           delivery_option: string | null
           due_date: string
+          employee_name: string | null
           franchise_id: string | null
           id: string
           is_admin: boolean | null
@@ -5542,7 +5543,10 @@ export type Database = {
           ready_by_date: string | null
           rejection_reason: string | null
           shipped_at: string | null
+          shipping_mode: string | null
           shipping_status: string | null
+          shiprocket_order_id: string | null
+          shiprocket_shipment_id: string | null
           shopify_order_id: string | null
           status: string | null
           terms_accepted_at: string | null
@@ -5565,6 +5569,7 @@ export type Database = {
           customer_id?: string | null
           delivery_option?: string | null
           due_date: string
+          employee_name?: string | null
           franchise_id?: string | null
           id?: string
           is_admin?: boolean | null
@@ -5581,7 +5586,10 @@ export type Database = {
           ready_by_date?: string | null
           rejection_reason?: string | null
           shipped_at?: string | null
+          shipping_mode?: string | null
           shipping_status?: string | null
+          shiprocket_order_id?: string | null
+          shiprocket_shipment_id?: string | null
           shopify_order_id?: string | null
           status?: string | null
           terms_accepted_at?: string | null
@@ -5604,6 +5612,7 @@ export type Database = {
           customer_id?: string | null
           delivery_option?: string | null
           due_date?: string
+          employee_name?: string | null
           franchise_id?: string | null
           id?: string
           is_admin?: boolean | null
@@ -5620,7 +5629,10 @@ export type Database = {
           ready_by_date?: string | null
           rejection_reason?: string | null
           shipped_at?: string | null
+          shipping_mode?: string | null
           shipping_status?: string | null
+          shiprocket_order_id?: string | null
+          shiprocket_shipment_id?: string | null
           shopify_order_id?: string | null
           status?: string | null
           terms_accepted_at?: string | null
@@ -6759,6 +6771,8 @@ export type Database = {
           hashtags: string[] | null
           hsn_code: string
           id: string
+          image_flipped: boolean
+          image_rotation: number
           image_url: string | null
           initial_stock: number | null
           is_active: boolean
@@ -6794,6 +6808,8 @@ export type Database = {
           hashtags?: string[] | null
           hsn_code: string
           id?: string
+          image_flipped?: boolean
+          image_rotation?: number
           image_url?: string | null
           initial_stock?: number | null
           is_active?: boolean
@@ -6829,6 +6845,8 @@ export type Database = {
           hashtags?: string[] | null
           hsn_code?: string
           id?: string
+          image_flipped?: boolean
+          image_rotation?: number
           image_url?: string | null
           initial_stock?: number | null
           is_active?: boolean
@@ -7585,6 +7603,7 @@ export type Database = {
       }
       sale_orders: {
         Row: {
+          amount_paid: number | null
           courier_company: string | null
           created_at: string
           customer_id: string | null
@@ -7597,15 +7616,20 @@ export type Database = {
           order_source: string
           packed_photo_url: string | null
           payment_method: string | null
+          payment_status: string | null
           salesperson_name: string
           shipped_at: string | null
+          shipping_mode: string | null
           shipping_status: string | null
+          shiprocket_order_id: string | null
+          shiprocket_shipment_id: string | null
           status: string
           total_amount: number
           tracking_number: string | null
           updated_at: string
         }
         Insert: {
+          amount_paid?: number | null
           courier_company?: string | null
           created_at?: string
           customer_id?: string | null
@@ -7618,15 +7642,20 @@ export type Database = {
           order_source?: string
           packed_photo_url?: string | null
           payment_method?: string | null
+          payment_status?: string | null
           salesperson_name: string
           shipped_at?: string | null
+          shipping_mode?: string | null
           shipping_status?: string | null
+          shiprocket_order_id?: string | null
+          shiprocket_shipment_id?: string | null
           status?: string
           total_amount?: number
           tracking_number?: string | null
           updated_at?: string
         }
         Update: {
+          amount_paid?: number | null
           courier_company?: string | null
           created_at?: string
           customer_id?: string | null
@@ -7639,9 +7668,13 @@ export type Database = {
           order_source?: string
           packed_photo_url?: string | null
           payment_method?: string | null
+          payment_status?: string | null
           salesperson_name?: string
           shipped_at?: string | null
+          shipping_mode?: string | null
           shipping_status?: string | null
+          shiprocket_order_id?: string | null
+          shiprocket_shipment_id?: string | null
           status?: string
           total_amount?: number
           tracking_number?: string | null
@@ -11880,17 +11913,82 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_logs: {
+        Row: {
+          approval_link: string | null
+          created_at: string | null
+          customer_name: string | null
+          customer_phone: string
+          failure_reason: string | null
+          id: string
+          msg91_request_id: string | null
+          order_id: string | null
+          order_number: string | null
+          send_response: Json | null
+          send_status: string | null
+          sent_at: string | null
+          status_updated_at: string | null
+        }
+        Insert: {
+          approval_link?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone: string
+          failure_reason?: string | null
+          id?: string
+          msg91_request_id?: string | null
+          order_id?: string | null
+          order_number?: string | null
+          send_response?: Json | null
+          send_status?: string | null
+          sent_at?: string | null
+          status_updated_at?: string | null
+        }
+        Update: {
+          approval_link?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone?: string
+          failure_reason?: string | null
+          id?: string
+          msg91_request_id?: string | null
+          order_id?: string | null
+          order_number?: string | null
+          send_response?: Json | null
+          send_status?: string | null
+          sent_at?: string | null
+          status_updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_booking_customer_details"
+            referencedColumns: ["order_booking_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_messages: {
         Row: {
           created_at: string | null
           customer_id: string | null
           delivered_at: string | null
+          direction: string
           error_message: string | null
           id: string
           invoice_id: string | null
           message_content: string
           message_type: string
           metadata: Json | null
+          order_id: string | null
           phone_number: string
           read_at: string | null
           sent_at: string | null
@@ -11902,12 +12000,14 @@ export type Database = {
           created_at?: string | null
           customer_id?: string | null
           delivered_at?: string | null
+          direction?: string
           error_message?: string | null
           id?: string
           invoice_id?: string | null
           message_content: string
           message_type: string
           metadata?: Json | null
+          order_id?: string | null
           phone_number: string
           read_at?: string | null
           sent_at?: string | null
@@ -11919,12 +12019,14 @@ export type Database = {
           created_at?: string | null
           customer_id?: string | null
           delivered_at?: string | null
+          direction?: string
           error_message?: string | null
           id?: string
           invoice_id?: string | null
           message_content?: string
           message_type?: string
           metadata?: Json | null
+          order_id?: string | null
           phone_number?: string
           read_at?: string | null
           sent_at?: string | null
@@ -11945,6 +12047,20 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "tax_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_booking_customer_details"
+            referencedColumns: ["order_booking_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_bookings"
             referencedColumns: ["id"]
           },
         ]
@@ -12150,6 +12266,10 @@ export type Database = {
         Args: { p_amount: number; p_user_id: string }
         Returns: number
       }
+      approve_order_by_token: {
+        Args: { p_approved_at?: string; p_approved_by: string; p_token: string }
+        Returns: boolean
+      }
       bulk_create_client_credentials: { Args: never; Returns: Json }
       bulk_restore_products: { Args: never; Returns: Json }
       bulk_soft_delete_products: { Args: never; Returns: Json }
@@ -12295,6 +12415,10 @@ export type Database = {
       refresh_product_inventory_summary: {
         Args: { target_product_id: string }
         Returns: undefined
+      }
+      reject_order_by_token: {
+        Args: { p_reason?: string; p_token: string }
+        Returns: boolean
       }
       reset_client_password: { Args: { credential_id: string }; Returns: Json }
       restore_product: { Args: { product_uuid: string }; Returns: Json }
