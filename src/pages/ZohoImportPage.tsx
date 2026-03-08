@@ -652,6 +652,7 @@ function PaymentsImportTab() {
   const queryClient = useQueryClient();
   const [csvText, setCsvText] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
 
   const { data: existingVendors = [] } = useQuery({
     queryKey: ["vendor_profiles_all"],
@@ -685,9 +686,10 @@ function PaymentsImportTab() {
     },
   });
 
+  // Composite key map: vendorId::billNumber -> bill info
   const billMap = useMemo(() => {
     const m = new Map<string, { id: string; vendor_id: string }>();
-    existingBills.forEach((b) => m.set(b.bill_number, { id: b.id, vendor_id: b.vendor_id }));
+    existingBills.forEach((b) => m.set(`${b.vendor_id}::${b.bill_number}`, { id: b.id, vendor_id: b.vendor_id }));
     return m;
   }, [existingBills]);
 
@@ -722,20 +724,25 @@ function PaymentsImportTab() {
       // Fuzzy match vendor
       const match = vendor_name ? fuzzyMatch(vendor_name, existingVendors) : null;
       const vendor_id = match?.id || null;
-      const billInfo = bill_number ? billMap.get(bill_number) : null;
+      // Use composite key for bill lookup
+      const billInfo = (bill_number && vendor_id) ? billMap.get(`${vendor_id}::${bill_number}`) : null;
 
       const errors: string[] = [];
+      const warnings: string[] = [];
       if (!vendor_name) errors.push("Missing vendor");
-      if (!vendor_id) errors.push("Vendor not found");
       if (!amount) errors.push("Missing amount");
-      if (bill_number && !billInfo) errors.push("Bill not found");
       if (!payment_date) errors.push("Missing date");
+      // Vendor not found is a warning (will auto-create), not an error
+      if (vendor_name && !vendor_id) warnings.push("Will create vendor");
+      // Bill not found is a warning (payment imports without bill link), not an error
+      if (bill_number && !billInfo) warnings.push("Bill not linked");
 
       return {
         vendor_name, vendor_id, matchedTo: match?.matchedName || null, matchType: match?.matchType || null,
         bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method,
         status: payment_status?.toLowerCase() === "void" ? "void" : "completed",
-        notes, rowStatus: errors.length ? "error" as const : "new" as const, errors,
+        notes, warnings,
+        rowStatus: errors.length ? "error" as const : "new" as const, errors,
       };
     }).filter((r) => r.amount > 0 || r.errors.length > 0); // Skip zero-amount rows
   }, [csvText, existingVendors, existingBills, billMap]);
@@ -758,6 +765,7 @@ function PaymentsImportTab() {
     const valid = parsedRows.filter((r) => r.rowStatus === "new");
     if (!valid.length) return;
     setImporting(true);
+    setImportProgress({ current: 0, total: valid.length });
     let inserted = 0, errors = 0, vendorsCreated = 0;
 
     // Auto-create missing vendors
@@ -770,15 +778,17 @@ function PaymentsImportTab() {
     }
 
     try {
-      for (let i = 0; i < valid.length; i += 50) {
-        const batch = valid.slice(i, i + 50);
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < valid.length; i += BATCH_SIZE) {
+        const batch = valid.slice(i, i + BATCH_SIZE);
         const payloads = batch.map((r) => {
           let vendorId = r.vendor_id;
           if (!vendorId && r.vendor_name) {
             vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
           }
+          if (!vendorId) return null;
           return {
-            vendor_id: vendorId!,
+            vendor_id: vendorId,
             bill_id: r.bill_id,
             amount: r.amount,
             payment_amount: r.amount,
@@ -788,11 +798,23 @@ function PaymentsImportTab() {
             status: r.status || "completed",
             notes: r.notes || null,
           };
-        }).filter((p) => p.vendor_id);
+        }).filter(Boolean);
+
         if (payloads.length) {
           const { error } = await supabase.from("vendor_payments").insert(payloads);
-          if (error) errors += payloads.length; else inserted += payloads.length;
+          if (error) {
+            // Fallback to individual inserts on batch failure
+            for (const p of payloads) {
+              const { error: singleErr } = await supabase.from("vendor_payments").insert(p);
+              if (singleErr) { console.error("Payment insert error:", singleErr.message); errors++; }
+              else inserted++;
+            }
+          } else {
+            inserted += payloads.length;
+          }
         }
+        errors += batch.length - payloads.length; // no vendor_id rows
+        setImportProgress({ current: Math.min(i + BATCH_SIZE, valid.length), total: valid.length });
       }
 
       // Post-import reconciliation
@@ -869,12 +891,20 @@ function PaymentsImportTab() {
                     <TableCell>₹{r.amount.toLocaleString()}</TableCell>
                     <TableCell>{r.payment_date}</TableCell>
                     <TableCell>{r.payment_method || "—"}</TableCell>
-                    <TableCell>{r.errors.length > 0 && <span className="text-destructive text-xs">{r.errors.join(", ")}</span>}</TableCell>
+                    <TableCell>
+                      {r.errors.length > 0 && <span className="text-destructive text-xs">{r.errors.join(", ")}</span>}
+                      {r.warnings && r.warnings.length > 0 && <span className="text-amber-500 text-xs">{r.errors.length > 0 ? ", " : ""}{r.warnings.join(", ")}</span>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+          {importing && importProgress.total > 0 && (
+            <div className="text-sm text-muted-foreground">
+              Importing: {importProgress.current} / {importProgress.total} rows processed...
+            </div>
+          )}
           <Button onClick={handleImport} disabled={importing || counts.new === 0}>
             {importing ? <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & Reconciling...</> : <>Import {counts.new} Payments</>}
           </Button>
