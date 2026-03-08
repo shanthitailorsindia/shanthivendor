@@ -891,7 +891,10 @@ function PaymentsImportTab() {
                     <TableCell>₹{r.amount.toLocaleString()}</TableCell>
                     <TableCell>{r.payment_date}</TableCell>
                     <TableCell>{r.payment_method || "—"}</TableCell>
-                    <TableCell>{r.errors.length > 0 && <span className="text-destructive text-xs">{r.errors.join(", ")}</span>}</TableCell>
+                    <TableCell>
+                      {r.errors.length > 0 && <span className="text-destructive text-xs">{r.errors.join(", ")}</span>}
+                      {r.warnings && r.warnings.length > 0 && <span className="text-amber-500 text-xs">{r.errors.length > 0 ? ", " : ""}{r.warnings.join(", ")}</span>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
