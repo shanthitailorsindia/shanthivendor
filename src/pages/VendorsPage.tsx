@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAll";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,12 +21,7 @@ export default function VendorsPage() {
   const { data: vendors, isLoading } = useQuery({
     queryKey: ["vendor-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return await fetchAllRows("vendor_profiles", "*", { order: { column: "created_at", ascending: false } });
     },
   });
 

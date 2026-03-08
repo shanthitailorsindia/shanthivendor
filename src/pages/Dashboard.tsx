@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAll";
 import {
   Users, FileText, CreditCard, Package, TrendingUp, TrendingDown,
   IndianRupee, Calendar, AlertTriangle, Clock, ChevronRight, Wallet
@@ -126,11 +127,11 @@ export default function Dashboard() {
   const { data: billsSummary } = useQuery({
     queryKey: ["bills-summary"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("total_amount, paid_amount, payment_status, status").limit(500);
-      const total = data?.reduce((s, b) => s + Number(b.total_amount), 0) ?? 0;
-      const paid = data?.reduce((s, b) => s + Number(b.paid_amount), 0) ?? 0;
-      const unpaid = data?.filter(b => b.payment_status === 'unpaid').length ?? 0;
-      return { total, paid, unpaid, count: data?.length ?? 0 };
+      const data = await fetchAllRows("purchase_bills", "total_amount, paid_amount, payment_status, status");
+      const total = data.reduce((s, b) => s + Number(b.total_amount), 0);
+      const paid = data.reduce((s, b) => s + Number(b.paid_amount), 0);
+      const unpaid = data.filter(b => b.payment_status === 'unpaid').length;
+      return { total, paid, unpaid, count: data.length };
     },
   });
 
@@ -158,23 +159,17 @@ export default function Dashboard() {
   const { data: unpaidBillsRaw } = useQuery({
     queryKey: ["unpaid-bills-planner"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("purchase_bills")
-        .select("id, bill_number, vendor_id, due_date, total_amount, paid_amount, payment_status")
-        .neq("payment_status", "paid")
-        .order("due_date", { ascending: true })
-        .limit(200);
-      return data ?? [];
+      return await fetchAllRows("purchase_bills", "id, bill_number, vendor_id, due_date, total_amount, paid_amount, payment_status", {
+        neq: { payment_status: "paid" },
+        order: { column: "due_date", ascending: true },
+      });
     },
   });
 
   const { data: vendorProfiles } = useQuery({
     queryKey: ["vendor-profiles-planner"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("vendor_profiles")
-        .select("id, company_name, credit_limit, payment_terms");
-      return data ?? [];
+      return await fetchAllRows("vendor_profiles", "id, company_name, credit_limit, payment_terms");
     },
   });
 

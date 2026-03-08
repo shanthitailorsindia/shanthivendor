@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAll";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -163,27 +164,23 @@ export default function PurchaseBillsPage() {
   const { data: bills, isLoading } = useQuery({
     queryKey: ["purchase-bills"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("purchase_bills").select("*").order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return await fetchAllRows("purchase_bills", "*", { order: { column: "created_at", ascending: false } });
     },
   });
 
   const { data: vendors } = useQuery({
     queryKey: ["vendor-profiles-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name").eq("status", "active");
-      return data ?? [];
+      return await fetchAllRows("vendor_profiles", "id, company_name", { eq: { status: "active" } });
     },
   });
 
   const { data: vendorMap } = useQuery({
     queryKey: ["vendor-profiles-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
+      const data = await fetchAllRows("vendor_profiles", "id, company_name");
       const map: Record<string, string> = {};
-      data?.forEach(v => { map[v.id] = v.company_name; });
+      data.forEach(v => { map[v.id] = v.company_name; });
       return map;
     },
   });
