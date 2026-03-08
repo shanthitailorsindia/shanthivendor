@@ -342,10 +342,10 @@ function BillsImportTab() {
   const { data: existingBills = [] } = useQuery({
     queryKey: ["purchase_bills_numbers"],
     queryFn: async () => {
-      const all: { id: string; bill_number: string }[] = [];
+      const all: { id: string; bill_number: string; vendor_id: string }[] = [];
       let from = 0;
       while (true) {
-        const { data } = await supabase.from("purchase_bills").select("id, bill_number").range(from, from + 999);
+        const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id").range(from, from + 999);
         if (!data || data.length === 0) break;
         all.push(...data);
         if (data.length < 1000) break;
@@ -355,7 +355,8 @@ function BillsImportTab() {
     },
   });
 
-  const billSet = useMemo(() => new Set(existingBills.map((b) => b.bill_number)), [existingBills]);
+  // Build a set of "vendorId::billNumber" for duplicate detection
+  const billSet = useMemo(() => new Set(existingBills.map((b) => `${b.vendor_id}::${b.bill_number}`)), [existingBills]);
 
   interface AggregatedBill {
     vendor_name: string;
@@ -394,7 +395,7 @@ function BillsImportTab() {
     const headerMap = buildHeaderMap(firstRow);
     const dataRows = raw.slice(1);
 
-    // Aggregate by bill_number (Zoho exports one row per line item)
+    // Aggregate by vendor_name + bill_number (bill numbers aren't unique across vendors)
     const billAgg = new Map<string, {
       vendor_name: string; bill_number: string; bill_date: string; due_date: string;
       total: number; balance: number; tax_amount: number; bill_status: string; notes: string;
@@ -402,11 +403,13 @@ function BillsImportTab() {
 
     for (const cells of dataRows) {
       const bill_number = getByHeader(cells, headerMap, "Bill Number");
+      const vendor_name = getByHeader(cells, headerMap, "Vendor Name");
       if (!bill_number) continue;
 
-      if (!billAgg.has(bill_number)) {
-        billAgg.set(bill_number, {
-          vendor_name: getByHeader(cells, headerMap, "Vendor Name"),
+      const aggKey = `${vendor_name}::${bill_number}`;
+      if (!billAgg.has(aggKey)) {
+        billAgg.set(aggKey, {
+          vendor_name,
           bill_number,
           bill_date: getByHeader(cells, headerMap, "Bill Date"),
           due_date: getByHeader(cells, headerMap, "Due Date"),
@@ -414,24 +417,22 @@ function BillsImportTab() {
           balance: parseFloat(getByHeader(cells, headerMap, "Balance")) || 0,
           tax_amount: parseFloat(getByHeader(cells, headerMap, "Tax Amount")) || 0,
           bill_status: getByHeader(cells, headerMap, "Bill Status"),
-          notes: getByHeader(cells, headerMap, "Notes"),
+          notes: getByHeader(cells, headerMap, "Vendor Notes", "Notes"),
         });
-      } else {
-        // For aggregated rows, tax might need summing per item but Total/Balance are bill-level (same across rows)
-        // We keep the bill-level values from the first row
       }
+      // For aggregated rows, Total/Balance are bill-level (same across rows) — keep first row values
     }
 
     return Array.from(billAgg.values()).map((b): AggregatedBill => {
       const match = b.vendor_name ? fuzzyMatch(b.vendor_name, existingVendors) : null;
       const vendor_id = match?.id || null;
       const paid_amount = b.total - b.balance;
-      const billExists = billSet.has(b.bill_number);
+      // Check existence using vendor_id + bill_number combination
+      const billExists = vendor_id ? billSet.has(`${vendor_id}::${b.bill_number}`) : false;
       const errors: string[] = [];
       if (!b.vendor_name) errors.push("Missing vendor");
       if (!b.bill_number) errors.push("Missing bill number");
       if (!b.bill_date) errors.push("Missing bill date");
-      if (!b.total) errors.push("Missing amount");
       const rowStatus = errors.length ? "error" : billExists ? (updateExisting ? "update" : "skip") : "new";
       const payment_status = paid_amount >= b.total && b.total > 0 ? "paid" : paid_amount > 0 ? "partial" : "unpaid";
       return {
@@ -457,6 +458,14 @@ function BillsImportTab() {
     reader.readAsText(file);
   };
 
+  // Map Zoho bill status to our status values
+  const mapBillStatus = (zohoStatus: string): string => {
+    const s = zohoStatus?.toLowerCase().trim();
+    if (s === "void") return "void";
+    if (s === "draft") return "draft";
+    return "approved"; // "paid", "open", "overdue", etc. all map to approved
+  };
+
   const handleImport = async () => {
     const actionable = parsedRows.filter((r) => r.rowStatus === "new" || r.rowStatus === "update");
     if (!actionable.length) return;
@@ -473,38 +482,79 @@ function BillsImportTab() {
     }
 
     try {
-      for (const r of actionable) {
+      // Batch insert new bills
+      const newBills = actionable.filter((r) => !r.billExists);
+      const updateBills = actionable.filter((r) => r.billExists && updateExisting);
+
+      // Process new bills in batches of 50
+      for (let i = 0; i < newBills.length; i += 50) {
+        const batch = newBills.slice(i, i + 50);
+        const payloads = batch.map((r) => {
+          let vendorId = r.vendor_id;
+          if (!vendorId && r.vendor_name) {
+            vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
+          }
+          if (!vendorId) return null;
+          return {
+            vendor_id: vendorId,
+            bill_number: r.bill_number,
+            bill_date: r.bill_date,
+            due_date: r.due_date || r.bill_date,
+            total_amount: r.total_amount,
+            subtotal: r.total_amount - r.tax_amount,
+            tax_amount: r.tax_amount,
+            paid_amount: r.paid_amount,
+            payment_status: r.payment_status,
+            status: mapBillStatus(r.bill_status),
+            notes: r.notes || null,
+          };
+        }).filter(Boolean);
+
+        if (payloads.length > 0) {
+          const { error, data } = await supabase.from("purchase_bills").insert(payloads as any);
+          if (error) {
+            console.error("Batch insert error:", error.message);
+            // Fall back to individual inserts
+            for (const p of payloads) {
+              const { error: singleErr } = await supabase.from("purchase_bills").insert(p as any);
+              if (singleErr) { console.error("Single insert error:", r.bill_number, singleErr.message); errors++; }
+              else inserted++;
+            }
+          } else {
+            inserted += payloads.length;
+          }
+        }
+        errors += batch.length - payloads.length; // count skipped due to no vendor
+      }
+
+      // Process updates one by one
+      for (const r of updateBills) {
         let vendorId = r.vendor_id;
         if (!vendorId && r.vendor_name) {
           vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
         }
         if (!vendorId) { errors++; continue; }
 
-        const payload = {
-          vendor_id: vendorId,
-          bill_number: r.bill_number,
-          bill_date: r.bill_date,
-          due_date: r.due_date || r.bill_date,
-          total_amount: r.total_amount,
-          subtotal: r.total_amount - r.tax_amount,
-          tax_amount: r.tax_amount,
-          paid_amount: r.paid_amount,
-          payment_status: r.payment_status,
-          status: r.bill_status?.toLowerCase() === "open" ? "approved" : r.bill_status?.toLowerCase() || "approved",
-          notes: r.notes || null,
-        };
-
-        if (r.billExists && updateExisting) {
-          const existing = existingBills.find((b) => b.bill_number === r.bill_number);
-          if (existing) {
-            const { error } = await supabase.from("purchase_bills").update(payload).eq("id", existing.id);
-            if (error) errors++; else updated++;
-          }
-        } else if (!r.billExists) {
-          const { error } = await supabase.from("purchase_bills").insert(payload);
-          if (error) errors++; else inserted++;
+        const existing = existingBills.find((b) => b.bill_number === r.bill_number && b.vendor_id === vendorId);
+        if (existing) {
+          const { error } = await supabase.from("purchase_bills").update({
+            vendor_id: vendorId,
+            bill_number: r.bill_number,
+            bill_date: r.bill_date,
+            due_date: r.due_date || r.bill_date,
+            total_amount: r.total_amount,
+            subtotal: r.total_amount - r.tax_amount,
+            tax_amount: r.tax_amount,
+            paid_amount: r.paid_amount,
+            payment_status: r.payment_status,
+            status: mapBillStatus(r.bill_status),
+            notes: r.notes || null,
+          }).eq("id", existing.id);
+          if (error) { console.error("Update error:", r.bill_number, error.message); errors++; }
+          else updated++;
         }
       }
+
       toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${vendorsCreated} vendors created, ${errors} errors` });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills_numbers"] });
