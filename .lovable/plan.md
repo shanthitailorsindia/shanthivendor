@@ -1,90 +1,63 @@
 
 
-# Purchase Bills: Edit, Delete, File Upload + Products: Bulk Upload
+# Fix Bills & Payments Import for Zoho Books CSV Format
 
-## Part 1: Purchase Bills - Edit, Delete, and Bill File Upload
+## Problem
+Both the **Bills** and **Payments** tabs use hardcoded column indices (e.g., `cells[0]`, `cells[1]`) which don't match Zoho's actual CSV format. They also use exact vendor name matching instead of the fuzzy matching already built for the Vendors tab.
 
-### 1A. Storage Bucket for Bill Uploads
-Create a Supabase storage bucket `purchase-bills` (public) so users can upload bill files (PDF/images) directly instead of pasting URLs.
+### Zoho Bill.csv actual columns (key ones):
+| Field | Header | Index |
+|-------|--------|-------|
+| Bill Date | "Bill Date" | 0 |
+| Due Date | "Due Date" | 1 |
+| Vendor Name | "Vendor Name" | 4 |
+| Bill Number | "Bill Number" | 8 |
+| SubTotal | "SubTotal" | 12 |
+| Total | "Total" | 13 |
+| Balance | "Balance" | 14 |
+| Bill Status | "Bill Status" | 28 |
+| Tax Amount | "Tax Amount" | 39 |
+| Item Total | "Item Total" | 40 |
 
-**Migration SQL:**
-- Create `purchase-bills` storage bucket
-- Add RLS policies for insert/select/delete on `storage.objects`
+**Important**: Zoho exports one row per **line item**. Multiple rows can share the same Bill Number. We need to **aggregate by bill_number** -- sum item totals and tax amounts, take the bill-level Total, and use the Balance field to determine paid_amount (`Total - Balance = paid_amount`).
 
-### 1B. Actions Column on Bills Table
-Replace the current "Bill" column with an **Actions** column containing 4 icon buttons per row:
-- **Eye** - View bill details (read-only dialog)
-- **Pencil** - Edit bill (full form dialog)
-- **Trash2** - Delete bill (confirmation dialog)
-- **QrCode** - Print QR tags for all products in the bill
+### Zoho Vendor_Payment.csv actual columns:
+| Field | Header | Index |
+|-------|--------|-------|
+| Mode | "Mode" | 4 |
+| Amount | "Amount" | 7 |
+| Payment Status | "Payment Status" | 14 |
+| Date | "Date" | 15 |
+| Vendor Name | "Vendor Name" | 18 |
+| Bill Number | "Bill Number" | 47 |
+| Bill Amount | "Bill Amount" | 44 |
 
-### 1C. View Bill Dialog
-- Read-only dialog showing bill header (bill number, vendor, dates, status, payment info, notes)
-- Fetch and display `purchase_bill_items` in a table (product, code, qty, price, tax, total)
-- Show bill file preview/download link if uploaded
-- Display totals summary
+**Important**: One payment can be split across multiple bills (same Payment Number, different Bill IDs). Each row shows how much of that payment applies to a specific bill via "Bill Amount".
 
-### 1D. Edit Bill Dialog
-- Full form dialog pre-filled with existing bill data
-- Fetch `purchase_bill_items` and load into the same line-item editor (reusing `ProductSearchInput`)
-- **Bill file upload**: Replace the URL input with a file upload input that uploads to `purchase-bills` bucket. Show existing file if present, with option to replace
-- On save: update `purchase_bills` row, delete old items, insert updated items
-- Support GST inclusive/exclusive toggle, discount, and all header fields
+### Additional issues:
+- Both tabs fetch existing data with Supabase's default 1000-row limit, which may miss records
+- No fuzzy vendor matching (the `fuzzyMatch` + `normalizeForMatch` helpers exist but aren't used)
 
-### 1E. Delete Bill
-- `AlertDialog` confirmation: "This will permanently delete the bill and all its line items"
-- Delete `purchase_bill_items` by `bill_id`, then delete the `purchase_bills` row
-- Invalidate queries on success
+## Solution
 
-### 1F. QR Print from Bill
-- Dialog that fetches all `purchase_bill_items` for the bill, then fetches corresponding product data
-- **Sticker Format** selector (Jewellery Tag / 2 Across / 4 Across) - same 3 formats from QR Price Tags page
-- **Number of stickers** per product (default = quantity from bill item)
-- Preview grid + Print button
-- Reuses the same tag HTML generation logic from `QRPriceTagsPage`
+### BillsImportTab changes:
+1. **Header-based mapping** using `buildHeaderMap` + `getByHeader` (already exist)
+2. **Aggregate by bill_number**: Group rows with the same bill number, use bill-level `Total` and compute `paid_amount = Total - Balance`
+3. **Fuzzy vendor matching** using existing `fuzzyMatch` helper
+4. **Remove 1000-row limit** on existing bills/vendors queries (add `.limit(10000)` or paginate)
 
-### 1G. Update Create Bill Form
-- Replace the "Bill URL" + "Bill Filename" fields with a **file upload** input
-- Upload file to `purchase-bills` bucket, store the public URL in `original_bill_url` and filename in `original_bill_filename`
+### PaymentsImportTab changes:
+1. **Header-based mapping** for Zoho payment columns
+2. **Fuzzy vendor matching** for vendor name lookup
+3. **Map bill_number to bill_id** using the "Bill Number" column from Zoho
+4. **Use "Bill Amount"** (not "Amount") as the payment amount per bill, since one payment can split across bills
+5. **Remove row limits** on queries
 
----
+### File changes:
+**`src/pages/ZohoImportPage.tsx`** -- Rewrite `BillsImportTab` and `PaymentsImportTab`:
+- Use `buildHeaderMap`/`getByHeader` for column detection
+- Bills: aggregate duplicate bill_number rows, compute paid from Balance
+- Payments: map Zoho headers, use Bill Amount for per-bill amounts
+- Both: use `fuzzyMatch` for vendor lookup instead of exact match
+- Both: increase query limits to handle 3000+ records
 
-## Part 2: Products - Bulk Upload
-
-### 2A. Bulk Upload Dialog in Products Page
-Add a **Bulk Upload** button next to the "Add Product" button that opens a dialog with:
-- **CSV file upload** input (accepts .csv, .xlsx)
-- **Paste text area** for CSV data
-- Expected format header row: `name, item_code, cost_price, unit_price, hsn_code, gst_rate, quantity_in_stock, category_text, subcategory, product_type`
-- **Preview table** showing parsed rows before import (with validation status per row)
-- **Import** button to insert all valid rows
-
-### 2B. CSV Processing Logic
-- Parse CSV text (split by newlines and commas)
-- Validate required fields: `name`, `item_code`, `cost_price`, `unit_price`, `hsn_code`, `gst_rate`
-- Skip header row if detected
-- Show count of valid vs invalid rows
-- Insert valid products into `products` table with `is_active: true`
-- Report errors for failed rows (duplicate item_code, missing fields)
-- Invalidate products query on success
-
----
-
-## Technical Details
-
-### New State Variables (PurchaseBillsPage)
-```text
-viewBillId, editBillId, deleteBillId, qrBillId -- string | null for each dialog
-```
-
-### New Mutations (PurchaseBillsPage)
-- `updateBill` -- update header + replace line items
-- `deleteBill` -- delete items then bill
-- `uploadBillFile` -- upload to storage bucket
-
-### Files Modified
-- `src/pages/PurchaseBillsPage.tsx` -- Add actions, view/edit/delete/QR dialogs, file upload
-- `src/pages/ProductsPage.tsx` -- Add bulk upload button and dialog
-
-### Database Migration
-- Create `purchase-bills` storage bucket with public access and RLS policies
