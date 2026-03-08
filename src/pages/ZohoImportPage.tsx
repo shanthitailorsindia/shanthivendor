@@ -315,7 +315,7 @@ function VendorsImportTab() {
 }
 
 // ============================================================
-// BILLS TAB
+// BILLS TAB (Zoho Books format: one row per line item, aggregate by bill_number)
 // ============================================================
 function BillsImportTab() {
   const queryClient = useQueryClient();
@@ -326,57 +326,123 @@ function BillsImportTab() {
   const { data: existingVendors = [] } = useQuery({
     queryKey: ["vendor_profiles_all"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
-      return data || [];
+      const all: { id: string; company_name: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("vendor_profiles").select("id, company_name").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
 
   const { data: existingBills = [] } = useQuery({
     queryKey: ["purchase_bills_numbers"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number");
-      return data || [];
+      const all: { id: string; bill_number: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("purchase_bills").select("id, bill_number").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
 
-  const vendorMap = useMemo(() => {
-    const m = new Map<string, string>();
-    existingVendors.forEach((v) => m.set(v.company_name.toLowerCase().trim(), v.id));
-    return m;
-  }, [existingVendors]);
-
   const billSet = useMemo(() => new Set(existingBills.map((b) => b.bill_number)), [existingBills]);
 
+  interface AggregatedBill {
+    vendor_name: string;
+    vendor_id: string | null;
+    matchedTo: string | null;
+    matchType: "exact" | "fuzzy" | null;
+    bill_number: string;
+    bill_date: string;
+    due_date: string;
+    total_amount: number;
+    balance: number;
+    paid_amount: number;
+    tax_amount: number;
+    bill_status: string;
+    notes: string;
+    payment_status: string;
+    billExists: boolean;
+    rowStatus: string;
+    errors: string[];
+  }
+
   const parsedRows = useMemo(() => {
-    if (!csvText.trim()) return [];
+    if (!csvText.trim()) return [] as AggregatedBill[];
     const raw = parseCSV(csvText);
-    let rows = raw;
-    if (rows.length > 0 && isHeaderRow(rows[0], ["bill_number", "vendor_name", "bill_date"])) {
-      rows = rows.slice(1);
-    }
-    return rows.map((cells) => {
-      const vendor_name = cells[0] || "";
-      const bill_number = cells[1] || "";
-      const bill_date = cells[2] || "";
-      const due_date = cells[3] || "";
-      const total_amount = parseFloat(cells[4]) || 0;
-      const paid_amount = parseFloat(cells[5]) || 0;
-      const tax_amount = parseFloat(cells[6]) || 0;
-      const status = cells[7] || "approved";
-      const notes = cells[8] || "";
-      const vendor_id = vendorMap.get(vendor_name.toLowerCase().trim());
-      const billExists = billSet.has(bill_number);
-      const errors: string[] = [];
-      if (!vendor_name) errors.push("Missing vendor");
-      if (!vendor_id) errors.push("Vendor not found");
-      if (!bill_number) errors.push("Missing bill number");
-      if (!bill_date) errors.push("Missing bill date");
-      if (!total_amount) errors.push("Missing amount");
-      const rowStatus = errors.length ? "error" : billExists ? (updateExisting ? "update" : "skip") : "new";
-      const payment_status = paid_amount >= total_amount && total_amount > 0 ? "paid" : paid_amount > 0 ? "partial" : "unpaid";
-      return { vendor_name, vendor_id, bill_number, bill_date, due_date, total_amount, paid_amount, tax_amount, status, notes, payment_status, billExists, rowStatus, errors };
+    if (raw.length < 2) return [] as AggregatedBill[];
+
+    // Detect headers
+    const firstRow = raw[0];
+    const hasHeaders = firstRow.some((c) => {
+      const l = c.toLowerCase().trim();
+      return ["bill number", "vendor name", "bill date", "total", "balance"].includes(l);
     });
-  }, [csvText, vendorMap, billSet, updateExisting]);
+
+    if (!hasHeaders) return [] as AggregatedBill[];
+
+    const headerMap = buildHeaderMap(firstRow);
+    const dataRows = raw.slice(1);
+
+    // Aggregate by bill_number (Zoho exports one row per line item)
+    const billAgg = new Map<string, {
+      vendor_name: string; bill_number: string; bill_date: string; due_date: string;
+      total: number; balance: number; tax_amount: number; bill_status: string; notes: string;
+    }>();
+
+    for (const cells of dataRows) {
+      const bill_number = getByHeader(cells, headerMap, "Bill Number");
+      if (!bill_number) continue;
+
+      if (!billAgg.has(bill_number)) {
+        billAgg.set(bill_number, {
+          vendor_name: getByHeader(cells, headerMap, "Vendor Name"),
+          bill_number,
+          bill_date: getByHeader(cells, headerMap, "Bill Date"),
+          due_date: getByHeader(cells, headerMap, "Due Date"),
+          total: parseFloat(getByHeader(cells, headerMap, "Total")) || 0,
+          balance: parseFloat(getByHeader(cells, headerMap, "Balance")) || 0,
+          tax_amount: parseFloat(getByHeader(cells, headerMap, "Tax Amount")) || 0,
+          bill_status: getByHeader(cells, headerMap, "Bill Status"),
+          notes: getByHeader(cells, headerMap, "Notes"),
+        });
+      } else {
+        // For aggregated rows, tax might need summing per item but Total/Balance are bill-level (same across rows)
+        // We keep the bill-level values from the first row
+      }
+    }
+
+    return Array.from(billAgg.values()).map((b): AggregatedBill => {
+      const match = b.vendor_name ? fuzzyMatch(b.vendor_name, existingVendors) : null;
+      const vendor_id = match?.id || null;
+      const paid_amount = b.total - b.balance;
+      const billExists = billSet.has(b.bill_number);
+      const errors: string[] = [];
+      if (!b.vendor_name) errors.push("Missing vendor");
+      if (!vendor_id) errors.push("Vendor not found");
+      if (!b.bill_number) errors.push("Missing bill number");
+      if (!b.bill_date) errors.push("Missing bill date");
+      if (!b.total) errors.push("Missing amount");
+      const rowStatus = errors.length ? "error" : billExists ? (updateExisting ? "update" : "skip") : "new";
+      const payment_status = paid_amount >= b.total && b.total > 0 ? "paid" : paid_amount > 0 ? "partial" : "unpaid";
+      return {
+        vendor_name: b.vendor_name, vendor_id, matchedTo: match?.matchedName || null, matchType: match?.matchType || null,
+        bill_number: b.bill_number, bill_date: b.bill_date, due_date: b.due_date,
+        total_amount: b.total, balance: b.balance, paid_amount, tax_amount: b.tax_amount,
+        bill_status: b.bill_status, notes: b.notes, payment_status, billExists, rowStatus, errors,
+      };
+    });
+  }, [csvText, existingVendors, billSet, updateExisting]);
 
   const counts = useMemo(() => {
     const c = { new: 0, update: 0, skip: 0, error: 0 };
@@ -398,9 +464,8 @@ function BillsImportTab() {
     setImporting(true);
     let inserted = 0, updated = 0, errors = 0;
     try {
-      for (let i = 0; i < actionable.length; i += 50) {
-        const batch = actionable.slice(i, i + 50);
-        const payloads = batch.map((r) => ({
+      for (const r of actionable) {
+        const payload = {
           vendor_id: r.vendor_id!,
           bill_number: r.bill_number,
           bill_date: r.bill_date,
@@ -410,21 +475,19 @@ function BillsImportTab() {
           tax_amount: r.tax_amount,
           paid_amount: r.paid_amount,
           payment_status: r.payment_status,
-          status: r.status || "approved",
+          status: r.bill_status?.toLowerCase() === "open" ? "approved" : r.bill_status?.toLowerCase() || "approved",
           notes: r.notes || null,
-        }));
+        };
 
-        if (updateExisting) {
-          const { data, error } = await supabase.from("purchase_bills").upsert(payloads, { onConflict: "bill_number" }).select();
-          if (error) { errors += batch.length; } else {
-            batch.forEach((r) => { if (r.billExists) updated++; else inserted++; });
+        if (r.billExists && updateExisting) {
+          const existing = existingBills.find((b) => b.bill_number === r.bill_number);
+          if (existing) {
+            const { error } = await supabase.from("purchase_bills").update(payload).eq("id", existing.id);
+            if (error) errors++; else updated++;
           }
-        } else {
-          const newOnly = payloads.filter((_, idx) => !batch[idx].billExists);
-          if (newOnly.length) {
-            const { error } = await supabase.from("purchase_bills").insert(newOnly);
-            if (error) errors += newOnly.length; else inserted += newOnly.length;
-          }
+        } else if (!r.billExists) {
+          const { error } = await supabase.from("purchase_bills").insert(payload);
+          if (error) errors++; else inserted++;
         }
       }
       toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${errors} errors` });
@@ -452,7 +515,7 @@ function BillsImportTab() {
         </div>
       </div>
 
-      <Textarea placeholder={`Paste CSV here...\nFormat: vendor_name, bill_number, bill_date, due_date, total_amount, paid_amount, tax_amount, status, notes`} rows={6} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
+      <Textarea placeholder="Paste Zoho Books Bills CSV export here, or upload the file above. Zoho format auto-detected by headers." rows={4} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
 
       {parsedRows.length > 0 && (
         <>
@@ -468,11 +531,12 @@ function BillsImportTab() {
                 <TableRow>
                   <TableHead>Status</TableHead>
                   <TableHead>Vendor</TableHead>
+                  <TableHead>Matched To</TableHead>
                   <TableHead>Bill #</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Due</TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead>Paid</TableHead>
+                  <TableHead>Balance</TableHead>
                   <TableHead>Issues</TableHead>
                 </TableRow>
               </TableHeader>
@@ -481,11 +545,19 @@ function BillsImportTab() {
                   <TableRow key={i} className={r.rowStatus === "error" ? "bg-destructive/10" : ""}>
                     <TableCell><StatusBadge status={r.rowStatus} /></TableCell>
                     <TableCell>{r.vendor_name}</TableCell>
+                    <TableCell>
+                      {r.matchedTo ? (
+                        <span className="text-xs">
+                          {r.matchedTo}
+                          {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
+                        </span>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell className="font-medium">{r.bill_number}</TableCell>
                     <TableCell>{r.bill_date}</TableCell>
-                    <TableCell>{r.due_date}</TableCell>
                     <TableCell>₹{r.total_amount.toLocaleString()}</TableCell>
                     <TableCell>₹{r.paid_amount.toLocaleString()}</TableCell>
+                    <TableCell>₹{r.balance.toLocaleString()}</TableCell>
                     <TableCell>{r.errors.length > 0 && <span className="text-destructive text-xs">{r.errors.join(", ")}</span>}</TableCell>
                   </TableRow>
                 ))}
@@ -502,7 +574,7 @@ function BillsImportTab() {
 }
 
 // ============================================================
-// PAYMENTS TAB
+// PAYMENTS TAB (Zoho Books format: one row per bill-payment allocation)
 // ============================================================
 function PaymentsImportTab() {
   const queryClient = useQueryClient();
@@ -512,24 +584,34 @@ function PaymentsImportTab() {
   const { data: existingVendors = [] } = useQuery({
     queryKey: ["vendor_profiles_all"],
     queryFn: async () => {
-      const { data } = await supabase.from("vendor_profiles").select("id, company_name");
-      return data || [];
+      const all: { id: string; company_name: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("vendor_profiles").select("id, company_name").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
 
   const { data: existingBills = [] } = useQuery({
     queryKey: ["purchase_bills_all_for_payment"],
     queryFn: async () => {
-      const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id");
-      return data || [];
+      const all: { id: string; bill_number: string; vendor_id: string }[] = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("purchase_bills").select("id, bill_number, vendor_id").range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return all;
     },
   });
-
-  const vendorMap = useMemo(() => {
-    const m = new Map<string, string>();
-    existingVendors.forEach((v) => m.set(v.company_name.toLowerCase().trim(), v.id));
-    return m;
-  }, [existingVendors]);
 
   const billMap = useMemo(() => {
     const m = new Map<string, { id: string; vendor_id: string }>();
@@ -540,28 +622,51 @@ function PaymentsImportTab() {
   const parsedRows = useMemo(() => {
     if (!csvText.trim()) return [];
     const raw = parseCSV(csvText);
-    let rows = raw;
-    if (rows.length > 0 && isHeaderRow(rows[0], ["vendor_name", "amount", "payment_date"])) {
-      rows = rows.slice(1);
-    }
-    return rows.map((cells) => {
-      const vendor_name = cells[0] || "";
-      const bill_number = cells[1] || "";
-      const amount = parseFloat(cells[2]) || 0;
-      const payment_date = cells[3] || new Date().toISOString().split("T")[0];
-      const payment_method = cells[4] || "";
-      const status = cells[5] || "completed";
-      const notes = cells[6] || "";
-      const vendor_id = vendorMap.get(vendor_name.toLowerCase().trim());
+    if (raw.length < 2) return [];
+
+    const firstRow = raw[0];
+    const hasHeaders = firstRow.some((c) => {
+      const l = c.toLowerCase().trim();
+      return ["vendor name", "amount", "date", "mode", "bill number", "bill amount"].includes(l);
+    });
+
+    if (!hasHeaders) return [];
+
+    const headerMap = buildHeaderMap(firstRow);
+    const dataRows = raw.slice(1);
+
+    return dataRows.map((cells) => {
+      const vendor_name = getByHeader(cells, headerMap, "Vendor Name");
+      const bill_number = getByHeader(cells, headerMap, "Bill Number");
+      // Use "Bill Amount" (per-bill allocation) instead of "Amount" (total payment)
+      const billAmountStr = getByHeader(cells, headerMap, "Bill Amount");
+      const amountStr = getByHeader(cells, headerMap, "Amount");
+      const amount = parseFloat(billAmountStr) || parseFloat(amountStr) || 0;
+      const payment_date = getByHeader(cells, headerMap, "Date");
+      const payment_method = getByHeader(cells, headerMap, "Mode");
+      const payment_status = getByHeader(cells, headerMap, "Payment Status");
+      const notes = getByHeader(cells, headerMap, "Notes", "Reference#", "Reference Number");
+
+      // Fuzzy match vendor
+      const match = vendor_name ? fuzzyMatch(vendor_name, existingVendors) : null;
+      const vendor_id = match?.id || null;
       const billInfo = bill_number ? billMap.get(bill_number) : null;
+
       const errors: string[] = [];
       if (!vendor_name) errors.push("Missing vendor");
       if (!vendor_id) errors.push("Vendor not found");
       if (!amount) errors.push("Missing amount");
       if (bill_number && !billInfo) errors.push("Bill not found");
-      return { vendor_name, vendor_id, bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method, status, notes, rowStatus: errors.length ? "error" as const : "new" as const, errors };
-    });
-  }, [csvText, vendorMap, billMap]);
+      if (!payment_date) errors.push("Missing date");
+
+      return {
+        vendor_name, vendor_id, matchedTo: match?.matchedName || null, matchType: match?.matchType || null,
+        bill_number, bill_id: billInfo?.id || null, amount, payment_date, payment_method,
+        status: payment_status?.toLowerCase() === "void" ? "void" : "completed",
+        notes, rowStatus: errors.length ? "error" as const : "new" as const, errors,
+      };
+    }).filter((r) => r.amount > 0 || r.errors.length > 0); // Skip zero-amount rows
+  }, [csvText, existingVendors, existingBills, billMap]);
 
   const counts = useMemo(() => {
     const c = { new: 0, error: 0 };
@@ -583,7 +688,6 @@ function PaymentsImportTab() {
     setImporting(true);
     let inserted = 0, errors = 0;
     try {
-      // Insert payments in batches
       for (let i = 0; i < valid.length; i += 50) {
         const batch = valid.slice(i, i + 50);
         const payloads = batch.map((r) => ({
@@ -630,10 +734,10 @@ function PaymentsImportTab() {
           </Label>
           <Input id="payment-csv" type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
         </div>
-        <p className="text-xs text-muted-foreground">Payments are additive — all valid rows will be inserted.</p>
+        <p className="text-xs text-muted-foreground">Payments are additive — all valid rows will be inserted. Uses "Bill Amount" for per-bill allocations.</p>
       </div>
 
-      <Textarea placeholder={`Paste CSV here...\nFormat: vendor_name, bill_number (optional), amount, payment_date, payment_method, status, notes`} rows={6} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
+      <Textarea placeholder="Paste Zoho Books Vendor Payments CSV export here, or upload the file above." rows={4} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
 
       {parsedRows.length > 0 && (
         <>
@@ -647,10 +751,11 @@ function PaymentsImportTab() {
                 <TableRow>
                   <TableHead>Status</TableHead>
                   <TableHead>Vendor</TableHead>
+                  <TableHead>Matched To</TableHead>
                   <TableHead>Bill #</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Method</TableHead>
+                  <TableHead>Mode</TableHead>
                   <TableHead>Issues</TableHead>
                 </TableRow>
               </TableHeader>
@@ -659,6 +764,14 @@ function PaymentsImportTab() {
                   <TableRow key={i} className={r.rowStatus === "error" ? "bg-destructive/10" : ""}>
                     <TableCell><StatusBadge status={r.rowStatus} /></TableCell>
                     <TableCell>{r.vendor_name}</TableCell>
+                    <TableCell>
+                      {r.matchedTo ? (
+                        <span className="text-xs">
+                          {r.matchedTo}
+                          {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
+                        </span>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell>{r.bill_number || "—"}</TableCell>
                     <TableCell>₹{r.amount.toLocaleString()}</TableCell>
                     <TableCell>{r.payment_date}</TableCell>
