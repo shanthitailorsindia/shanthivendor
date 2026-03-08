@@ -379,6 +379,9 @@ export default function VendorDetailPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <EditVendorDialog vendor={vendor} open={editOpen} onOpenChange={setEditOpen} />
+      <ImportBillsDialog vendorId={vendor.id} open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
