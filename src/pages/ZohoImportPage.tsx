@@ -652,6 +652,7 @@ function PaymentsImportTab() {
   const queryClient = useQueryClient();
   const [csvText, setCsvText] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
 
   const { data: existingVendors = [] } = useQuery({
     queryKey: ["vendor_profiles_all"],
