@@ -429,7 +429,6 @@ function BillsImportTab() {
       const billExists = billSet.has(b.bill_number);
       const errors: string[] = [];
       if (!b.vendor_name) errors.push("Missing vendor");
-      if (!vendor_id) errors.push("Vendor not found");
       if (!b.bill_number) errors.push("Missing bill number");
       if (!b.bill_date) errors.push("Missing bill date");
       if (!b.total) errors.push("Missing amount");
