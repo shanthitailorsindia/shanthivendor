@@ -21,12 +21,7 @@ export default function VendorsPage() {
   const { data: vendors, isLoading } = useQuery({
     queryKey: ["vendor-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return await fetchAllRows("vendor_profiles", "*", { order: { column: "created_at", ascending: false } });
     },
   });
 
