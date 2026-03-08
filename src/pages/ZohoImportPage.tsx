@@ -429,7 +429,6 @@ function BillsImportTab() {
       const billExists = billSet.has(b.bill_number);
       const errors: string[] = [];
       if (!b.vendor_name) errors.push("Missing vendor");
-      if (!vendor_id) errors.push("Vendor not found");
       if (!b.bill_number) errors.push("Missing bill number");
       if (!b.bill_date) errors.push("Missing bill date");
       if (!b.total) errors.push("Missing amount");
@@ -462,11 +461,27 @@ function BillsImportTab() {
     const actionable = parsedRows.filter((r) => r.rowStatus === "new" || r.rowStatus === "update");
     if (!actionable.length) return;
     setImporting(true);
-    let inserted = 0, updated = 0, errors = 0;
+    let inserted = 0, updated = 0, errors = 0, vendorsCreated = 0;
+
+    // Auto-create missing vendors
+    const createdVendorMap = new Map<string, string>();
+    const missingVendorNames = [...new Set(actionable.filter((r) => !r.vendor_id && r.vendor_name).map((r) => r.vendor_name))];
+    for (const name of missingVendorNames) {
+      const { data, error } = await supabase.from("vendor_profiles").insert({ company_name: name, status: "active" }).select("id").single();
+      if (data) { createdVendorMap.set(normalizeForMatch(name), data.id); vendorsCreated++; }
+      else if (error) console.error("Failed to create vendor:", name, error.message);
+    }
+
     try {
       for (const r of actionable) {
+        let vendorId = r.vendor_id;
+        if (!vendorId && r.vendor_name) {
+          vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
+        }
+        if (!vendorId) { errors++; continue; }
+
         const payload = {
-          vendor_id: r.vendor_id!,
+          vendor_id: vendorId,
           bill_number: r.bill_number,
           bill_date: r.bill_date,
           due_date: r.due_date || r.bill_date,
@@ -490,9 +505,10 @@ function BillsImportTab() {
           if (error) errors++; else inserted++;
         }
       }
-      toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${errors} errors` });
+      toast({ title: "Bills imported", description: `${inserted} new, ${updated} updated, ${vendorsCreated} vendors created, ${errors} errors` });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills_numbers"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_profiles_all"] });
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
@@ -551,6 +567,8 @@ function BillsImportTab() {
                           {r.matchedTo}
                           {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
                         </span>
+                      ) : r.vendor_name ? (
+                        <Badge className="bg-blue-600 text-white text-[10px] px-1">Will Create</Badge>
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="font-medium">{r.bill_number}</TableCell>
@@ -686,26 +704,44 @@ function PaymentsImportTab() {
     const valid = parsedRows.filter((r) => r.rowStatus === "new");
     if (!valid.length) return;
     setImporting(true);
-    let inserted = 0, errors = 0;
+    let inserted = 0, errors = 0, vendorsCreated = 0;
+
+    // Auto-create missing vendors
+    const createdVendorMap = new Map<string, string>();
+    const missingVendorNames = [...new Set(valid.filter((r) => !r.vendor_id && r.vendor_name).map((r) => r.vendor_name))];
+    for (const name of missingVendorNames) {
+      const { data, error } = await supabase.from("vendor_profiles").insert({ company_name: name, status: "active" }).select("id").single();
+      if (data) { createdVendorMap.set(normalizeForMatch(name), data.id); vendorsCreated++; }
+      else if (error) console.error("Failed to create vendor:", name, error.message);
+    }
+
     try {
       for (let i = 0; i < valid.length; i += 50) {
         const batch = valid.slice(i, i + 50);
-        const payloads = batch.map((r) => ({
-          vendor_id: r.vendor_id!,
-          bill_id: r.bill_id,
-          amount: r.amount,
-          payment_amount: r.amount,
-          due_date: r.payment_date,
-          payment_date: r.payment_date,
-          payment_method: r.payment_method || null,
-          status: r.status || "completed",
-          notes: r.notes || null,
-        }));
-        const { error } = await supabase.from("vendor_payments").insert(payloads);
-        if (error) errors += batch.length; else inserted += batch.length;
+        const payloads = batch.map((r) => {
+          let vendorId = r.vendor_id;
+          if (!vendorId && r.vendor_name) {
+            vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
+          }
+          return {
+            vendor_id: vendorId!,
+            bill_id: r.bill_id,
+            amount: r.amount,
+            payment_amount: r.amount,
+            due_date: r.payment_date,
+            payment_date: r.payment_date,
+            payment_method: r.payment_method || null,
+            status: r.status || "completed",
+            notes: r.notes || null,
+          };
+        }).filter((p) => p.vendor_id);
+        if (payloads.length) {
+          const { error } = await supabase.from("vendor_payments").insert(payloads);
+          if (error) errors += payloads.length; else inserted += payloads.length;
+        }
       }
 
-      // Post-import reconciliation: recalculate paid_amount on affected bills
+      // Post-import reconciliation
       const affectedBillIds = [...new Set(valid.filter((r) => r.bill_id).map((r) => r.bill_id!))];
       for (const billId of affectedBillIds) {
         const { data: payments } = await supabase.from("vendor_payments").select("payment_amount").eq("bill_id", billId);
@@ -715,9 +751,10 @@ function PaymentsImportTab() {
         await supabase.from("purchase_bills").update({ paid_amount: totalPaid, payment_status: paymentStatus }).eq("id", billId);
       }
 
-      toast({ title: "Payments imported", description: `${inserted} inserted, ${errors} errors. ${affectedBillIds.length} bills reconciled.` });
+      toast({ title: "Payments imported", description: `${inserted} inserted, ${vendorsCreated} vendors created, ${errors} errors. ${affectedBillIds.length} bills reconciled.` });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
       queryClient.invalidateQueries({ queryKey: ["vendor_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_profiles_all"] });
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
@@ -770,6 +807,8 @@ function PaymentsImportTab() {
                           {r.matchedTo}
                           {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
                         </span>
+                      ) : r.vendor_name ? (
+                        <Badge className="bg-blue-600 text-white text-[10px] px-1">Will Create</Badge>
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>{r.bill_number || "—"}</TableCell>
