@@ -25,6 +25,10 @@ const navItems = [
   { to: "/zoho-import", label: "Zoho Import", icon: Upload },
 ];
 
+const externalLinks = [
+  { href: "https://orderly-sales-view.lovable.app", label: "Sales / GST Report", icon: ExternalLink },
+];
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
 
