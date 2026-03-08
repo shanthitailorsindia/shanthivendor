@@ -517,7 +517,7 @@ function BillsImportTab() {
             // Fall back to individual inserts
             for (const p of payloads) {
               const { error: singleErr } = await supabase.from("purchase_bills").insert(p as any);
-              if (singleErr) { console.error("Single insert error:", r.bill_number, singleErr.message); errors++; }
+              if (singleErr) { console.error("Single insert error:", singleErr.message); errors++; }
               else inserted++;
             }
           } else {
