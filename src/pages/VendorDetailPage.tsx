@@ -160,6 +160,14 @@ export default function VendorDetailPage() {
             </div>
             {vendor.category && <p className="page-subtitle">{vendor.category}</p>}
           </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-1" /> Import Bills
+            </Button>
+            <Button size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4 mr-1" /> Edit Vendor
+            </Button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
           {vendor.phone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{vendor.phone}</span>}
