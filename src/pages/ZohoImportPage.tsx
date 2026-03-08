@@ -704,26 +704,44 @@ function PaymentsImportTab() {
     const valid = parsedRows.filter((r) => r.rowStatus === "new");
     if (!valid.length) return;
     setImporting(true);
-    let inserted = 0, errors = 0;
+    let inserted = 0, errors = 0, vendorsCreated = 0;
+
+    // Auto-create missing vendors
+    const createdVendorMap = new Map<string, string>();
+    const missingVendorNames = [...new Set(valid.filter((r) => !r.vendor_id && r.vendor_name).map((r) => r.vendor_name))];
+    for (const name of missingVendorNames) {
+      const { data, error } = await supabase.from("vendor_profiles").insert({ company_name: name, status: "active" }).select("id").single();
+      if (data) { createdVendorMap.set(normalizeForMatch(name), data.id); vendorsCreated++; }
+      else if (error) console.error("Failed to create vendor:", name, error.message);
+    }
+
     try {
       for (let i = 0; i < valid.length; i += 50) {
         const batch = valid.slice(i, i + 50);
-        const payloads = batch.map((r) => ({
-          vendor_id: r.vendor_id!,
-          bill_id: r.bill_id,
-          amount: r.amount,
-          payment_amount: r.amount,
-          due_date: r.payment_date,
-          payment_date: r.payment_date,
-          payment_method: r.payment_method || null,
-          status: r.status || "completed",
-          notes: r.notes || null,
-        }));
-        const { error } = await supabase.from("vendor_payments").insert(payloads);
-        if (error) errors += batch.length; else inserted += batch.length;
+        const payloads = batch.map((r) => {
+          let vendorId = r.vendor_id;
+          if (!vendorId && r.vendor_name) {
+            vendorId = createdVendorMap.get(normalizeForMatch(r.vendor_name)) || null;
+          }
+          return {
+            vendor_id: vendorId!,
+            bill_id: r.bill_id,
+            amount: r.amount,
+            payment_amount: r.amount,
+            due_date: r.payment_date,
+            payment_date: r.payment_date,
+            payment_method: r.payment_method || null,
+            status: r.status || "completed",
+            notes: r.notes || null,
+          };
+        }).filter((p) => p.vendor_id);
+        if (payloads.length) {
+          const { error } = await supabase.from("vendor_payments").insert(payloads);
+          if (error) errors += payloads.length; else inserted += payloads.length;
+        }
       }
 
-      // Post-import reconciliation: recalculate paid_amount on affected bills
+      // Post-import reconciliation
       const affectedBillIds = [...new Set(valid.filter((r) => r.bill_id).map((r) => r.bill_id!))];
       for (const billId of affectedBillIds) {
         const { data: payments } = await supabase.from("vendor_payments").select("payment_amount").eq("bill_id", billId);
@@ -733,9 +751,10 @@ function PaymentsImportTab() {
         await supabase.from("purchase_bills").update({ paid_amount: totalPaid, payment_status: paymentStatus }).eq("id", billId);
       }
 
-      toast({ title: "Payments imported", description: `${inserted} inserted, ${errors} errors. ${affectedBillIds.length} bills reconciled.` });
+      toast({ title: "Payments imported", description: `${inserted} inserted, ${vendorsCreated} vendors created, ${errors} errors. ${affectedBillIds.length} bills reconciled.` });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
       queryClient.invalidateQueries({ queryKey: ["vendor_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_profiles_all"] });
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
