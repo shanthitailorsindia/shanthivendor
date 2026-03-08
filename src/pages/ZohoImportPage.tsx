@@ -54,6 +54,57 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="outline">{status}</Badge>;
 }
 
+// --- Fuzzy Matching Helpers ---
+function normalizeForMatch(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/(pvtltd|pvt|ltd|limited|enterprises|traders|trading|corp|inc|llp|industries|co|company)$/g, "");
+}
+
+function fuzzyMatch(
+  csvName: string,
+  existingVendors: { id: string; company_name: string }[]
+): { id: string; matchedName: string; matchType: "exact" | "fuzzy" } | null {
+  const normInput = normalizeForMatch(csvName);
+  if (!normInput) return null;
+
+  // Exact normalized match
+  for (const v of existingVendors) {
+    if (normalizeForMatch(v.company_name) === normInput) {
+      return { id: v.id, matchedName: v.company_name, matchType: "exact" };
+    }
+  }
+
+  // Substring / contains match
+  for (const v of existingVendors) {
+    const normExisting = normalizeForMatch(v.company_name);
+    if (normExisting && normInput.length >= 3 && (normExisting.includes(normInput) || normInput.includes(normExisting))) {
+      return { id: v.id, matchedName: v.company_name, matchType: "fuzzy" };
+    }
+  }
+
+  return null;
+}
+
+// --- Header Detection ---
+function buildHeaderMap(headerRow: string[]): Map<string, number> {
+  const m = new Map<string, number>();
+  headerRow.forEach((h, i) => {
+    const key = h.trim().toLowerCase();
+    m.set(key, i);
+  });
+  return m;
+}
+
+function getByHeader(cells: string[], headerMap: Map<string, number>, ...possibleNames: string[]): string {
+  for (const name of possibleNames) {
+    const idx = headerMap.get(name.toLowerCase());
+    if (idx !== undefined && cells[idx] !== undefined) return cells[idx].trim();
+  }
+  return "";
+}
+
 // ============================================================
 // VENDORS TAB
 // ============================================================
@@ -71,36 +122,72 @@ function VendorsImportTab() {
     },
   });
 
-  const vendorMap = useMemo(() => {
-    const m = new Map<string, string>();
-    existingVendors.forEach((v) => m.set(v.company_name.toLowerCase().trim(), v.id));
-    return m;
-  }, [existingVendors]);
-
   const parsedRows = useMemo(() => {
     if (!csvText.trim()) return [];
     const raw = parseCSV(csvText);
-    let rows = raw;
-    if (rows.length > 0 && isHeaderRow(rows[0], ["company_name", "company", "vendor_name", "name"])) {
-      rows = rows.slice(1);
-    }
-    return rows.map((cells) => {
-      const company_name = cells[0] || "";
-      const email = cells[1] || "";
-      const phone = cells[2] || "";
-      const tax_id = cells[3] || "";
-      const category = cells[4] || "";
-      const credit_limit = parseFloat(cells[5]) || 0;
-      const payment_terms = parseInt(cells[6]) || 30;
-      const opening_balance = parseFloat(cells[7]) || 0;
-      const opening_balance_date = cells[8] || null;
-      const notes = cells[9] || "";
-      const existingId = vendorMap.get(company_name.toLowerCase().trim());
-      const hasError = !company_name;
-      const status = hasError ? "error" : existingId ? (updateExisting ? "update" : "skip") : "new";
-      return { company_name, email, phone, tax_id, category, credit_limit, payment_terms, opening_balance, opening_balance_date, notes, existingId, status, error: hasError ? "Missing company name" : "" };
+    if (raw.length === 0) return [];
+
+    // Detect headers
+    const firstRow = raw[0];
+    const hasHeaders = firstRow.some((c) => {
+      const l = c.toLowerCase().trim();
+      return ["company name", "contact name", "display name", "emailid", "gst identification number (gstin)", "opening balance"].includes(l);
     });
-  }, [csvText, vendorMap, updateExisting]);
+
+    let headerMap: Map<string, number>;
+    let dataRows: string[][];
+
+    if (hasHeaders) {
+      headerMap = buildHeaderMap(firstRow);
+      dataRows = raw.slice(1);
+    } else {
+      // Fallback to positional
+      headerMap = new Map([["company name", 0], ["emailid", 1], ["phone", 2], ["gst identification number (gstin)", 3], ["opening balance", 4]]);
+      dataRows = raw;
+    }
+
+    return dataRows.map((cells) => {
+      const company_name = getByHeader(cells, headerMap, "Company Name", "Contact Name", "Display Name");
+      const email = getByHeader(cells, headerMap, "EmailID", "Email");
+      const phone = getByHeader(cells, headerMap, "Phone", "MobilePhone", "Mobile");
+      const tax_id = getByHeader(cells, headerMap, "GST Identification Number (GSTIN)", "GSTIN", "Tax ID");
+      const opening_balance = parseFloat(getByHeader(cells, headerMap, "Opening Balance")) || 0;
+      const payment_terms = parseInt(getByHeader(cells, headerMap, "Payment Terms")) || 30;
+      const notes = getByHeader(cells, headerMap, "Notes");
+      const csvStatus = getByHeader(cells, headerMap, "Status");
+      const category = getByHeader(cells, headerMap, "Category", "Department");
+      const website = getByHeader(cells, headerMap, "Website");
+      const beneficiary_name = getByHeader(cells, headerMap, "Beneficiary Name");
+      const bank_account = getByHeader(cells, headerMap, "Vendor Bank Account Number");
+      const bank_name = getByHeader(cells, headerMap, "Vendor Bank Name");
+      const bank_code = getByHeader(cells, headerMap, "Vendor Bank Code");
+      const billing_address = getByHeader(cells, headerMap, "Billing Address");
+      const billing_city = getByHeader(cells, headerMap, "Billing City");
+      const billing_state = getByHeader(cells, headerMap, "Billing State");
+      const billing_code = getByHeader(cells, headerMap, "Billing Code");
+      const gst_treatment = getByHeader(cells, headerMap, "GST Treatment");
+
+      const match = company_name ? fuzzyMatch(company_name, existingVendors) : null;
+      const hasError = !company_name;
+      const status = hasError
+        ? "error"
+        : match
+          ? updateExisting ? "update" : "skip"
+          : "new";
+
+      return {
+        company_name, email, phone, tax_id, category, website,
+        opening_balance, payment_terms, notes, csvStatus, gst_treatment,
+        beneficiary_name, bank_account, bank_name, bank_code,
+        billing_address, billing_city, billing_state, billing_code,
+        existingId: match?.id || null,
+        matchedTo: match?.matchedName || null,
+        matchType: match?.matchType || null,
+        status,
+        error: hasError ? "Missing company name" : "",
+      };
+    });
+  }, [csvText, existingVendors, updateExisting]);
 
   const counts = useMemo(() => {
     const c = { new: 0, update: 0, skip: 0, error: 0 };
@@ -131,11 +218,11 @@ function VendorsImportTab() {
             phone: row.phone || null,
             tax_id: row.tax_id || null,
             category: row.category || null,
-            credit_limit: row.credit_limit || null,
-            payment_terms: row.payment_terms || null,
+            website: row.website || null,
             opening_balance: row.opening_balance || null,
-            opening_balance_date: row.opening_balance_date || null,
+            payment_terms: row.payment_terms || null,
             notes: row.notes || null,
+            status: row.csvStatus?.toLowerCase() === "inactive" ? "inactive" : "active",
           };
           if (row.status === "update" && row.existingId) {
             const { error } = await supabase.from("vendor_profiles").update(payload).eq("id", row.existingId);
@@ -171,7 +258,7 @@ function VendorsImportTab() {
         </div>
       </div>
 
-      <Textarea placeholder={`Paste CSV here...\nFormat: company_name, email, phone, tax_id, category, credit_limit, payment_terms, opening_balance, opening_balance_date, notes`} rows={6} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
+      <Textarea placeholder="Paste Zoho Books Vendors CSV export here, or upload the CSV file above." rows={4} value={csvText} onChange={(e) => setCsvText(e.target.value)} />
 
       {parsedRows.length > 0 && (
         <>
@@ -187,10 +274,10 @@ function VendorsImportTab() {
                 <TableRow>
                   <TableHead>Status</TableHead>
                   <TableHead>Company Name</TableHead>
+                  <TableHead>Matched To</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>GSTIN</TableHead>
-                  <TableHead>Credit Limit</TableHead>
                   <TableHead>Opening Bal.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -199,10 +286,19 @@ function VendorsImportTab() {
                   <TableRow key={i} className={r.status === "error" ? "bg-destructive/10" : ""}>
                     <TableCell><StatusBadge status={r.status} /></TableCell>
                     <TableCell className="font-medium">{r.company_name || <span className="text-destructive italic">Missing</span>}</TableCell>
-                    <TableCell>{r.email}</TableCell>
-                    <TableCell>{r.phone}</TableCell>
-                    <TableCell>{r.tax_id}</TableCell>
-                    <TableCell>₹{r.credit_limit.toLocaleString()}</TableCell>
+                    <TableCell>
+                      {r.matchedTo ? (
+                        <span className="text-xs">
+                          {r.matchedTo}
+                          {r.matchType === "fuzzy" && <Badge variant="outline" className="ml-1 text-[10px] px-1">fuzzy</Badge>}
+                        </span>
+                      ) : r.company_name ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-xs">{r.email}</TableCell>
+                    <TableCell className="text-xs">{r.phone}</TableCell>
+                    <TableCell className="text-xs">{r.tax_id}</TableCell>
                     <TableCell>₹{r.opening_balance.toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
