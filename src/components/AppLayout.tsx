@@ -9,7 +9,9 @@ import {
   Package,
   ChevronRight,
   Upload,
+  BarChart3,
 } from "lucide-react";
+import shanthiLogo from "@/assets/shanthi-logo.png";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -17,6 +19,7 @@ const navItems = [
   { to: "/purchase-bills", label: "Purchase Bills", icon: FileText },
   { to: "/payments", label: "Payments", icon: CreditCard },
   { to: "/products", label: "Products", icon: Package },
+  { to: "/gst-reports", label: "GST Reports", icon: BarChart3 },
   { to: "/qr-price-tags", label: "QR Price Tags", icon: QrCode },
   { to: "/zoho-import", label: "Zoho Import", icon: Upload },
 ];
