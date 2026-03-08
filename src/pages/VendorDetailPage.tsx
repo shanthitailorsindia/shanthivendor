@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,9 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Phone, Mail, Globe, CreditCard, Building2,
-  FileText, ExternalLink, MapPin, Users, IndianRupee
+  FileText, ExternalLink, MapPin, Users, IndianRupee, Pencil, Upload
 } from "lucide-react";
 import { format } from "date-fns";
+import EditVendorDialog from "@/components/vendor/EditVendorDialog";
+import ImportBillsDialog from "@/components/vendor/ImportBillsDialog";
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
