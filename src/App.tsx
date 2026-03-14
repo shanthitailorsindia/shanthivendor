@@ -63,6 +63,7 @@ function AuthWrapper() {
         <Route path="/vendors/:id" element={<VendorDetailPage />} />
         <Route path="/purchase-bills" element={<PurchaseBillsPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/payment-planner" element={<PaymentPlannerPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/gst-reports" element={<GSTReportsPage />} />
         <Route path="/qr-price-tags" element={<QRPriceTagsPage />} />
