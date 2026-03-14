@@ -123,7 +123,7 @@ export default function PaymentPlannerPage() {
         score,
         allocated: 0,
         payDate: "",
-        action: "Defer" as const,
+        action: "Defer" as "Pay Full" | "Partial" | "Defer",
       };
     });
 
