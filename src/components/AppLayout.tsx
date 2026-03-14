@@ -11,6 +11,7 @@ import {
   Upload,
   BarChart3,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
 import shanthiLogo from "@/assets/shanthi-logo.png";
 
