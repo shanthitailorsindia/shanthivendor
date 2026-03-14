@@ -12,6 +12,7 @@ import {
   BarChart3,
   ExternalLink,
   Wallet,
+  CalendarCheck,
 } from "lucide-react";
 import shanthiLogo from "@/assets/shanthi-logo.png";
 
@@ -25,6 +26,7 @@ const navItems = [
   { to: "/gst-reports", label: "GST Reports", icon: BarChart3 },
   { to: "/qr-price-tags", label: "QR Price Tags", icon: QrCode },
   { to: "/zoho-import", label: "Zoho Import", icon: Upload },
+  { to: "/year-end-close", label: "Year-End Close", icon: CalendarCheck },
 ];
 
 const externalLinks = [
