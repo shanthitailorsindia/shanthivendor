@@ -4,9 +4,10 @@ import { fetchAllRows } from "@/lib/fetchAll";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Wallet, IndianRupee, Calendar, AlertTriangle, Clock,
-  TrendingUp, CalendarRange,
+  TrendingUp, CalendarRange, RotateCcw,
 } from "lucide-react";
 import { format, differenceInDays, getDaysInMonth } from "date-fns";
 
@@ -27,19 +28,25 @@ interface VendorRow {
   overdueDays: number;
   priority: "high" | "medium" | "low";
   score: number;
-  allocated: number;
+  allocated: number;       // auto-suggested allocation
   payDate: string;
   action: "Pay Full" | "Partial" | "Defer";
 }
 
 /* ─── payment windows between 10th–28th ─── */
 function getPaymentDates(year: number, month: number): Date[] {
-  // 3 payment windows: 10th, 18th, 28th
   const dates = [10, 18, 28].map(d => {
     const maxDay = getDaysInMonth(new Date(year, month));
     return new Date(year, month, Math.min(d, maxDay));
   });
   return dates;
+}
+
+/* ─── derive action label from amount ─── */
+function deriveAction(amount: number, outstanding: number): "Pay Full" | "Partial" | "Defer" {
+  if (amount <= 0) return "Defer";
+  if (amount >= outstanding) return "Pay Full";
+  return "Partial";
 }
 
 /* ─── main ─── */
@@ -52,6 +59,9 @@ export default function PaymentPlannerPage() {
     const s = localStorage.getItem("monthly-payment-budget");
     return s ? Number(s) : 500000;
   });
+
+  // Manual allocation overrides: vendorId -> amount
+  const [manualAllocations, setManualAllocations] = useState<Record<string, number>>({});
 
   const handleBudgetChange = (v: string) => {
     const n = Number(v) || 0;
@@ -85,7 +95,7 @@ export default function PaymentPlannerPage() {
     },
   });
 
-  /* ── compute vendor-level outstanding ── */
+  /* ── compute vendor-level outstanding (auto-suggestion) ── */
   const vendorRows = useMemo<VendorRow[]>(() => {
     if (!bills || !vendors) return [];
 
@@ -130,18 +140,34 @@ export default function PaymentPlannerPage() {
     rows.sort((a, b) => b.score - a.score);
 
     // Allocate budget across 3 payment windows (10th, 18th, 28th)
+    // Vendors with manual overrides are skipped in auto-allocation
     let remaining = budget;
-    const windowBudget = budget / 3;
+
+    // First, subtract all manual overrides from the budget pool
+    rows.forEach(row => {
+      if (manualAllocations[row.vendor_id] !== undefined) {
+        remaining -= manualAllocations[row.vendor_id];
+      }
+    });
+
+    const windowBudget = remaining / 3;
     let windowIdx = 0;
     let windowSpent = 0;
 
     rows.forEach(row => {
+      // If manually set, use that value directly
+      if (manualAllocations[row.vendor_id] !== undefined) {
+        row.allocated = manualAllocations[row.vendor_id];
+        row.action = deriveAction(row.allocated, row.outstanding);
+        row.payDate = format(payDates[0], "dd MMM yyyy");
+        return;
+      }
+
       if (remaining <= 0) {
         row.action = "Defer";
         return;
       }
 
-      // Move to next window if current one is exhausted
       while (windowIdx < 2 && windowSpent >= windowBudget) {
         windowIdx++;
         windowSpent = 0;
@@ -164,12 +190,28 @@ export default function PaymentPlannerPage() {
     });
 
     return rows;
-  }, [bills, vendors, balances, budget, payDates]);
+  }, [bills, vendors, balances, budget, payDates, manualAllocations]);
 
+  // Totals use final allocated amounts (manual overrides already baked in)
   const totalOutstanding = vendorRows.reduce((s, r) => s + r.outstanding, 0);
   const totalAllocated = vendorRows.reduce((s, r) => s + r.allocated, 0);
   const overdueVendors = vendorRows.filter(r => r.overdueDays > 0).length;
   const payFullCount = vendorRows.filter(r => r.action === "Pay Full").length;
+
+  const handleAmountChange = (vendorId: string, value: string) => {
+    const num = Number(value) || 0;
+    setManualAllocations(prev => ({ ...prev, [vendorId]: num }));
+  };
+
+  const resetAllocation = (vendorId: string) => {
+    setManualAllocations(prev => {
+      const next = { ...prev };
+      delete next[vendorId];
+      return next;
+    });
+  };
+
+  const hasAnyManual = Object.keys(manualAllocations).length > 0;
 
   // Group by payment date for summary
   const windowSummary = useMemo(() => {
@@ -266,13 +308,24 @@ export default function PaymentPlannerPage() {
 
       {/* Vendor Schedule Table */}
       <div className="bg-card rounded-xl border overflow-hidden">
-        <div className="px-5 py-4 border-b flex items-center justify-between">
+        <div className="px-5 py-4 border-b flex items-center justify-between flex-wrap gap-3">
           <h3 className="font-semibold text-foreground flex items-center gap-2">
             <Clock className="h-4 w-4 text-primary" /> Vendor Payment Schedule
           </h3>
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+            {hasAnyManual && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => setManualAllocations({})}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset all to auto
+              </Button>
+            )}
             <span>Payment Window: <span className="font-semibold text-foreground">10th – 28th</span></span>
-            <span>Remaining: <span className="font-mono font-semibold text-foreground">{fmt(budget - totalAllocated)}</span></span>
+            <span>Remaining: <span className={`font-mono font-semibold ${budget - totalAllocated < 0 ? "text-destructive" : "text-foreground"}`}>{fmt(budget - totalAllocated)}</span></span>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -281,7 +334,10 @@ export default function PaymentPlannerPage() {
               <tr className="border-b bg-muted/30">
                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Vendor</th>
                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Outstanding</th>
-                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Allocated</th>
+                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Amount to Pay
+                  <span className="ml-1 text-[9px] normal-case text-muted-foreground/60">(editable)</span>
+                </th>
                 <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pay Date</th>
                 <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Priority</th>
                 <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Overdue</th>
@@ -297,42 +353,88 @@ export default function PaymentPlannerPage() {
                   </td>
                 </tr>
               ) : (
-                vendorRows.map(row => (
-                  <tr key={row.vendor_id} className={`hover:bg-muted/20 transition-colors ${row.action === "Defer" ? "opacity-50" : ""}`}>
-                    <td className="px-4 py-3 font-medium text-foreground">{row.vendor_name}</td>
-                    <td className="px-4 py-3 text-right font-mono text-foreground">{fmt(row.outstanding)}</td>
-                    <td className="px-4 py-3 text-right font-mono font-semibold text-success">
-                      {row.allocated > 0 ? fmt(row.allocated) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm text-foreground">
-                      {row.payDate || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${priorityStyles[row.priority]}`}>
-                        {row.priority}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {row.overdueDays > 0 ? (
-                        <span className="text-xs font-medium text-destructive">{row.overdueDays}d</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {row.action === "Pay Full" ? (
-                        <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20">Pay Full</Badge>
-                      ) : row.action === "Partial" ? (
-                        <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning border-warning/20">Partial</Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground">Defer</Badge>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                vendorRows.map(row => {
+                  const isManual = manualAllocations[row.vendor_id] !== undefined;
+                  const finalAmount = row.allocated;
+                  const finalAction = row.action;
+                  const isDefer = finalAction === "Defer";
+
+                  return (
+                    <tr
+                      key={row.vendor_id}
+                      className={`hover:bg-muted/20 transition-colors ${isDefer && !isManual ? "opacity-50" : ""}`}
+                    >
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        <div className="flex items-center gap-2">
+                          {row.vendor_name}
+                          {isManual && (
+                            <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+                              manual
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-foreground">{fmt(row.outstanding)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isManual && (
+                            <button
+                              onClick={() => resetAllocation(row.vendor_id)}
+                              className="text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
+                              title="Reset to auto"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          )}
+                          <div className={`flex items-center gap-0.5 rounded border px-2 py-1 ${isManual ? "border-primary/40 bg-primary/5" : "border-border bg-muted/30"}`}>
+                            <span className="text-muted-foreground text-xs">₹</span>
+                            <input
+                              type="number"
+                              value={finalAmount}
+                              min={0}
+                              max={row.outstanding}
+                              step={1000}
+                              onChange={e => handleAmountChange(row.vendor_id, e.target.value)}
+                              className="w-24 text-right bg-transparent font-mono font-semibold text-success text-sm border-none outline-none focus:ring-0"
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-foreground">
+                        {row.payDate || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${priorityStyles[row.priority]}`}>
+                          {row.priority}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {row.overdueDays > 0 ? (
+                          <span className="text-xs font-medium text-destructive">{row.overdueDays}d</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {finalAction === "Pay Full" ? (
+                          <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20">Pay Full</Badge>
+                        ) : finalAction === "Partial" ? (
+                          <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning border-warning/20">Partial</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground">Defer</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Footer tip */}
+        <div className="px-5 py-3 border-t bg-muted/20 text-xs text-muted-foreground">
+          💡 Tip: Click the amount field for any vendor to override the suggested payment. Use the <RotateCcw className="h-3 w-3 inline" /> icon to revert a vendor back to auto-suggested, or "Reset all to auto" to clear all overrides.
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAll";
@@ -9,8 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Search, Phone, Mail, Calendar, StickyNote, Globe, CreditCard,
-  Building2, IndianRupee, ArrowRight, Users
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from "@/components/ui/table";
+import {
+  Plus, Search, Phone, Mail, Calendar, StickyNote, Globe,
+  Building2, IndianRupee, ArrowRight, Users, LayoutGrid, List
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -20,6 +23,7 @@ export default function VendorsPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -28,6 +32,29 @@ export default function VendorsPage() {
     queryFn: async () => {
       return await fetchAllRows("vendor_profiles", "*", { order: { column: "created_at", ascending: false } });
     },
+  });
+
+  // Fetch balance summary for all vendors
+  const { data: allBalances } = useQuery({
+    queryKey: ["all-vendor-balances"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("vendor_balance_summary")
+        .select("id, current_balance, opening_balance");
+      return data ?? [];
+    },
+  });
+
+  // Fetch all bills for total purchase aggregation
+  const { data: allBills } = useQuery({
+    queryKey: ["all-bills-summary"],
+    queryFn: () => fetchAllRows("purchase_bills", "vendor_id, total_amount"),
+  });
+
+  // Fetch all payments for total payment aggregation
+  const { data: allPayments } = useQuery({
+    queryKey: ["all-payments-summary"],
+    queryFn: () => fetchAllRows("vendor_payments", "vendor_id, amount"),
   });
 
   const addVendor = useMutation({
@@ -42,6 +69,34 @@ export default function VendorsPage() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  // Build lookup maps for financial data
+  const balanceMap = useMemo(() => {
+    const map: Record<string, { current_balance: number; opening_balance: number }> = {};
+    allBalances?.forEach(b => {
+      if (b.id) map[b.id] = {
+        current_balance: Number(b.current_balance ?? 0),
+        opening_balance: Number(b.opening_balance ?? 0),
+      };
+    });
+    return map;
+  }, [allBalances]);
+
+  const purchaseMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    allBills?.forEach(b => {
+      if (b.vendor_id) map[b.vendor_id] = (map[b.vendor_id] || 0) + Number(b.total_amount ?? 0);
+    });
+    return map;
+  }, [allBills]);
+
+  const paymentMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    allPayments?.forEach(p => {
+      if (p.vendor_id) map[p.vendor_id] = (map[p.vendor_id] || 0) + Number(p.amount ?? 0);
+    });
+    return map;
+  }, [allPayments]);
 
   const filtered = vendors?.filter(v => {
     const matchesSearch =
@@ -58,8 +113,10 @@ export default function VendorsPage() {
 
   const activeCount = vendors?.filter(v => v.status === "active").length ?? 0;
   const inactiveCount = vendors?.filter(v => v.status !== "active").length ?? 0;
-  const totalCredit = vendors?.reduce((s, v) => s + (Number(v.credit_limit) || 0), 0) ?? 0;
   const totalOpening = vendors?.reduce((s, v) => s + (Number(v.opening_balance) || 0), 0) ?? 0;
+
+  // Total balance to all vendors (sum of current balances)
+  const totalBalance = allBalances?.reduce((s, b) => s + Number(b.current_balance ?? 0), 0) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -153,7 +210,7 @@ export default function VendorsPage() {
           {[
             { label: "Active Vendors", value: activeCount, icon: Users },
             { label: "Inactive", value: inactiveCount, icon: Building2 },
-            { label: "Total Credit Limit", value: formatCurrency(totalCredit), icon: CreditCard },
+            { label: "Total Balance to Vendors", value: formatCurrency(totalBalance), icon: IndianRupee },
             { label: "Total Opening Bal.", value: formatCurrency(totalOpening), icon: IndianRupee },
           ].map((s) => (
             <div key={s.label} className="bg-primary-foreground/10 backdrop-blur-sm rounded-lg p-3 border border-primary-foreground/10">
@@ -191,9 +248,28 @@ export default function VendorsPage() {
             </Button>
           ))}
         </div>
+        {/* View mode toggle */}
+        <div className="flex gap-1 border rounded-lg p-1 bg-card self-start">
+          <Button
+            variant={viewMode === "grid" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("grid")}
+            className="h-7 w-7 p-0"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "list" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("list")}
+            className="h-7 w-7 p-0"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      {/* Vendor Grid */}
+      {/* Vendor Grid View */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map(i => (
@@ -207,7 +283,7 @@ export default function VendorsPage() {
             </div>
           ))}
         </div>
-      ) : (
+      ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered?.map((v) => (
             <div
@@ -264,12 +340,6 @@ export default function VendorsPage() {
                     <span className="truncate">{v.website}</span>
                   </div>
                 )}
-                {v.tax_id && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CreditCard className="h-3.5 w-3.5 text-primary/50" />
-                    <span className="text-xs font-mono">{v.tax_id}</span>
-                  </div>
-                )}
               </div>
 
               {/* Notes */}
@@ -287,18 +357,12 @@ export default function VendorsPage() {
                   <span className="text-sm font-semibold text-foreground">{v.payment_terms} days</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-0.5">Credit Limit</span>
-                  <span className="text-sm font-semibold font-mono text-foreground">{formatCurrency(Number(v.credit_limit) || 0)}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-0.5">Balance</span>
+                  <span className="text-sm font-semibold font-mono text-foreground">
+                    {formatCurrency(balanceMap[v.id]?.current_balance ?? 0)}
+                  </span>
                 </div>
               </div>
-
-              {/* Opening Balance */}
-              {(Number(v.opening_balance) > 0) && (
-                <div className="mt-3 pt-3 border-t border-border/50 flex justify-between items-center">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Opening Balance</span>
-                  <span className="text-sm font-bold font-mono text-accent">{formatCurrency(Number(v.opening_balance))}</span>
-                </div>
-              )}
 
               {/* Footer */}
               <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
@@ -317,6 +381,91 @@ export default function VendorsPage() {
               <p className="text-sm text-muted-foreground/60 mt-1">Try adjusting your search or filters</p>
             </div>
           )}
+        </div>
+      ) : (
+        /* List View */
+        <div className="bg-card rounded-xl border overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Vendor</TableHead>
+                <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category</TableHead>
+                <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Balance</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Purchase</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Payment</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Current Balance</TableHead>
+                <TableHead className="w-8" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-12">
+                    <Building2 className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No vendors found</p>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered?.map((v) => {
+                  const bal = balanceMap[v.id];
+                  const totalPurchase = purchaseMap[v.id] ?? 0;
+                  const totalPayment = paymentMap[v.id] ?? 0;
+                  const currentBalance = bal?.current_balance ?? 0;
+                  const openingBalance = bal?.opening_balance ?? Number(v.opening_balance) ?? 0;
+                  return (
+                    <TableRow
+                      key={v.id}
+                      onClick={() => navigate(`/vendors/${v.id}`)}
+                      className="cursor-pointer hover:bg-muted/30 transition-colors"
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-primary">
+                              {v.company_name?.charAt(0)?.toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground text-sm">{v.company_name}</p>
+                            {v.phone && <p className="text-xs text-muted-foreground">{v.phone}</p>}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{v.category || "—"}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={v.status === "active" ? "default" : "secondary"}
+                          className={`text-[10px] uppercase tracking-wider ${
+                            v.status === "active"
+                              ? "bg-success/15 text-success border-success/20 hover:bg-success/15"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {v.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                        {formatCurrency(openingBalance)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-foreground">
+                        {formatCurrency(totalPurchase)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-success">
+                        {formatCurrency(totalPayment)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm font-semibold text-foreground">
+                        {formatCurrency(currentBalance)}
+                      </TableCell>
+                      <TableCell>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40" />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
