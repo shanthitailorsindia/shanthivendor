@@ -13,6 +13,7 @@ import VendorDetailPage from "@/pages/VendorDetailPage";
 import PurchaseBillsPage from "@/pages/PurchaseBillsPage";
 import PaymentsPage from "@/pages/PaymentsPage";
 import ProductsPage from "@/pages/ProductsPage";
+import PaymentPlannerPage from "@/pages/PaymentPlannerPage";
 import QRPriceTagsPage from "@/pages/QRPriceTagsPage";
 import ZohoImportPage from "@/pages/ZohoImportPage";
 import GSTReportsPage from "@/pages/GSTReportsPage";
