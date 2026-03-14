@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner"; // v2
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -17,7 +17,6 @@ import PaymentPlannerPage from "@/pages/PaymentPlannerPage";
 import QRPriceTagsPage from "@/pages/QRPriceTagsPage";
 import ZohoImportPage from "@/pages/ZohoImportPage";
 import GSTReportsPage from "@/pages/GSTReportsPage";
-import YearEndClosePage from "@/pages/YearEndClosePage";
 import LoginPage from "@/pages/LoginPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
@@ -71,7 +70,6 @@ function AuthWrapper() {
         <Route path="/gst-reports" element={<GSTReportsPage />} />
         <Route path="/qr-price-tags" element={<QRPriceTagsPage />} />
         <Route path="/zoho-import" element={<ZohoImportPage />} />
-        <Route path="/year-end-close" element={<YearEndClosePage />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
