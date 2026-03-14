@@ -331,11 +331,12 @@ export default function VendorDetailPage() {
                       <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total</th>
                       <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Paid</th>
                       <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                      <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Bill File</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {filteredBills.length === 0 ? (
-                      <tr><td colSpan={6} className="text-center py-12">
+                      <tr><td colSpan={7} className="text-center py-12">
                         <Receipt className="h-10 w-10 text-muted-foreground/20 mx-auto mb-2" />
                         <p className="text-sm text-muted-foreground">No purchase bills found</p>
                       </td></tr>
@@ -350,6 +351,21 @@ export default function VendorDetailPage() {
                           <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${statusColor(b.payment_status)}`}>
                             {b.payment_status}
                           </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {b.original_bill_url ? (
+                            <a
+                              href={b.original_bill_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={b.original_bill_filename ?? "View bill file"}
+                              className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/30 text-xs">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

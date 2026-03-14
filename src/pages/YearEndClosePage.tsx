@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAll";
@@ -11,9 +11,9 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  CalendarCheck, Package, Building2, CheckCircle2, AlertTriangle,
-  ArrowRight, RefreshCw, ClipboardList, IndianRupee, Lock,
-  TrendingUp, FileCheck,
+  CalendarCheck, Package, CheckCircle2, AlertTriangle,
+  ArrowRight, RefreshCw, IndianRupee, Lock,
+  FileCheck, ScanLine, Trash2, Search, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,62 +21,68 @@ import { toast } from "sonner";
 const fyStartYear = (d: Date) => (d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear());
 const getFYLabel = (startYear: number) =>
   `FY ${String(startYear).slice(2)}-${String(startYear + 1).slice(2)}`;
-const getFYEnd = (startYear: number) => new Date(startYear + 1, 2, 31); // March 31
-const getFYStart = (startYear: number) => new Date(startYear, 3, 1);    // April 1
+const getFYEnd = (startYear: number) => new Date(startYear + 1, 2, 31);
+const getFYStart = (startYear: number) => new Date(startYear, 3, 1);
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
-type StockRow = {
-  id: string;
+type CountedItem = {
+  product_id: string;
   item_code: string;
   name: string;
   category: string | null;
   system_stock: number;
-  physical_count: number | null; // null = not yet entered
+  physical_count: number;
 };
 
 type VendorRollRow = {
   id: string;
   company_name: string;
   current_opening: number;
-  current_balance: number; // will become new opening
+  current_balance: number;
 };
 
-/* ── step types ── */
 type Step = "overview" | "stocktake" | "rollover" | "close";
 
 export default function YearEndClosePage() {
   const now = new Date();
   const fyYear = fyStartYear(now);
   const fyLabel = getFYLabel(fyYear);
-  const fyEndDate = getFYEnd(fyYear);
-  const nextFYStart = getFYStart(fyYear + 1); // April 1 of next year
   const nextFYStartStr = `${fyYear + 1}-04-01`;
 
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("overview");
 
-  // Stock take state: productId -> physical count
-  const [physicalCounts, setPhysicalCounts] = useState<Record<string, number>>({});
+  /* ── Stock Take state ── */
+  const [codeInput, setCodeInput] = useState("");
+  const [qtyInput, setQtyInput] = useState("");
+  const [matchedProduct, setMatchedProduct] = useState<any | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [countedItems, setCountedItems] = useState<CountedItem[]>([]);
   const [stockSaved, setStockSaved] = useState(false);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const qtyRef = useRef<HTMLInputElement>(null);
 
-  // Rollover state
+  /* ── Rollover state ── */
   const [rolloverDone, setRolloverDone] = useState(false);
 
+  /* ── Auto-focus code input when on stocktake step ── */
+  useEffect(() => {
+    if (step === "stocktake") {
+      setTimeout(() => codeRef.current?.focus(), 100);
+    }
+  }, [step]);
+
   /* ── Queries ── */
-  const { data: products, isLoading: productsLoading } = useQuery({
+  const { data: products } = useQuery({
     queryKey: ["yearend-products"],
-    queryFn: () => fetchAllRows("products", "id, item_code, name, category, quantity_in_stock", {
-      order: { column: "name", ascending: true },
-    }),
+    queryFn: () => fetchAllRows("products", "id, item_code, name, category, quantity_in_stock"),
   });
 
   const { data: vendors, isLoading: vendorsLoading } = useQuery({
     queryKey: ["yearend-vendors"],
-    queryFn: () => fetchAllRows("vendor_profiles", "id, company_name, opening_balance, status", {
-      order: { column: "company_name", ascending: true },
-    }),
+    queryFn: () => fetchAllRows("vendor_profiles", "id, company_name, opening_balance, status"),
   });
 
   const { data: balances } = useQuery({
@@ -92,23 +98,21 @@ export default function YearEndClosePage() {
   const { data: unpaidBills } = useQuery({
     queryKey: ["yearend-unpaid"],
     queryFn: () =>
-      fetchAllRows("purchase_bills", "id, bill_number, total_amount, paid_amount, payment_status", {
+      fetchAllRows("purchase_bills", "id, total_amount, paid_amount, payment_status", {
         neq: { payment_status: "paid" },
       }),
   });
 
-  /* ── Derived data ── */
-  const stockRows = useMemo<StockRow[]>(() => {
-    return (products ?? []).map(p => ({
-      id: p.id,
-      item_code: p.item_code ?? "",
-      name: p.name ?? "",
-      category: p.category ?? null,
-      system_stock: Number(p.quantity_in_stock ?? 0),
-      physical_count: physicalCounts[p.id] !== undefined ? physicalCounts[p.id] : null,
-    }));
-  }, [products, physicalCounts]);
+  /* ── Product lookup map ── */
+  const productByCode = useMemo(() => {
+    const map: Record<string, any> = {};
+    (products ?? []).forEach(p => {
+      if (p.item_code) map[p.item_code.toLowerCase().trim()] = p;
+    });
+    return map;
+  }, [products]);
 
+  /* ── Derived ── */
   const vendorRollRows = useMemo<VendorRollRow[]>(() => {
     const balMap = new Map((balances ?? []).map(b => [b.id, Number(b.current_balance ?? 0)]));
     return (vendors ?? []).map(v => ({
@@ -119,20 +123,86 @@ export default function YearEndClosePage() {
     }));
   }, [vendors, balances]);
 
-  const stockCountEntered = Object.keys(physicalCounts).length;
-  const stockVarianceItems = stockRows.filter(
-    r => r.physical_count !== null && r.physical_count !== r.system_stock
-  );
   const totalUnpaidAmount = (unpaidBills ?? []).reduce(
     (s, b) => s + (Number(b.total_amount) - Number(b.paid_amount)), 0
   );
   const totalNewOpeningBalance = vendorRollRows.reduce((s, r) => s + r.current_balance, 0);
 
+  /* ── Code lookup ── */
+  const handleCodeSearch = () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    const product = productByCode[code.toLowerCase()];
+    if (product) {
+      setMatchedProduct(product);
+      setNotFound(false);
+      setTimeout(() => qtyRef.current?.focus(), 50);
+    } else {
+      setMatchedProduct(null);
+      setNotFound(true);
+    }
+  };
+
+  const handleCodeKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleCodeSearch();
+  };
+
+  /* ── Add to counted list ── */
+  const handleAddCount = () => {
+    if (!matchedProduct) return;
+    const qty = Number(qtyInput);
+    if (isNaN(qty) || qty < 0) {
+      toast.error("Enter a valid quantity");
+      return;
+    }
+    setCountedItems(prev => {
+      const existing = prev.findIndex(i => i.product_id === matchedProduct.id);
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = { ...updated[existing], physical_count: qty };
+        return updated;
+      }
+      return [
+        ...prev,
+        {
+          product_id: matchedProduct.id,
+          item_code: matchedProduct.item_code,
+          name: matchedProduct.name,
+          category: matchedProduct.category ?? null,
+          system_stock: Number(matchedProduct.quantity_in_stock ?? 0),
+          physical_count: qty,
+        },
+      ];
+    });
+    // Reset for next scan
+    setCodeInput("");
+    setQtyInput("");
+    setMatchedProduct(null);
+    setNotFound(false);
+    setStockSaved(false);
+    setTimeout(() => codeRef.current?.focus(), 50);
+    toast.success(`${matchedProduct.name} — counted ${qty}`);
+  };
+
+  const handleQtyKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleAddCount();
+  };
+
+  const removeItem = (productId: string) => {
+    setCountedItems(prev => prev.filter(i => i.product_id !== productId));
+  };
+
+  const updateCount = (productId: string, qty: number) => {
+    setCountedItems(prev =>
+      prev.map(i => i.product_id === productId ? { ...i, physical_count: qty } : i)
+    );
+  };
+
   /* ── Mutations ── */
   const saveStockTake = useMutation({
     mutationFn: async () => {
-      const updates = Object.entries(physicalCounts).map(([id, count]) =>
-        supabase.from("products").update({ quantity_in_stock: count }).eq("id", id)
+      const updates = countedItems.map(item =>
+        supabase.from("products").update({ quantity_in_stock: item.physical_count }).eq("id", item.product_id)
       );
       const results = await Promise.all(updates);
       const errors = results.filter(r => r.error);
@@ -142,7 +212,7 @@ export default function YearEndClosePage() {
       queryClient.invalidateQueries({ queryKey: ["yearend-products"] });
       queryClient.invalidateQueries({ queryKey: ["products-list"] });
       setStockSaved(true);
-      toast.success(`Stock take saved — ${stockCountEntered} products updated`);
+      toast.success(`${countedItems.length} products updated successfully`);
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -152,10 +222,7 @@ export default function YearEndClosePage() {
       const updates = vendorRollRows.map(v =>
         supabase
           .from("vendor_profiles")
-          .update({
-            opening_balance: v.current_balance,
-            opening_balance_date: nextFYStartStr,
-          })
+          .update({ opening_balance: v.current_balance, opening_balance_date: nextFYStartStr })
           .eq("id", v.id)
       );
       const results = await Promise.all(updates);
@@ -167,24 +234,27 @@ export default function YearEndClosePage() {
       queryClient.invalidateQueries({ queryKey: ["vendor-profiles"] });
       queryClient.invalidateQueries({ queryKey: ["all-vendor-balances"] });
       setRolloverDone(true);
-      toast.success(`Vendor balances rolled over to ${nextFYStartStr} successfully`);
+      toast.success(`Vendor balances rolled over to ${nextFYStartStr}`);
     },
     onError: (e: any) => toast.error(e.message),
   });
 
   /* ── Step nav ── */
   const steps: { key: Step; label: string; icon: any }[] = [
-    { key: "overview", label: "Overview", icon: FileCheck },
-    { key: "stocktake", label: "Stock Take", icon: Package },
-    { key: "rollover", label: "Vendor Rollover", icon: RefreshCw },
-    { key: "close", label: "Close Year", icon: Lock },
+    { key: "overview",  label: "Overview",         icon: FileCheck    },
+    { key: "stocktake", label: "Stock Take",        icon: ScanLine     },
+    { key: "rollover",  label: "Vendor Rollover",   icon: RefreshCw    },
+    { key: "close",     label: "Close Year",        icon: Lock         },
   ];
 
   const stepStatus = (s: Step) => {
-    if (s === "stocktake") return stockSaved ? "done" : stockCountEntered > 0 ? "partial" : "pending";
-    if (s === "rollover") return rolloverDone ? "done" : "pending";
+    if (s === "stocktake") return stockSaved ? "done" : countedItems.length > 0 ? "partial" : "pending";
+    if (s === "rollover")  return rolloverDone ? "done" : "pending";
     return "pending";
   };
+
+  /* ── Variance summary ── */
+  const varianceItems = countedItems.filter(i => i.physical_count !== i.system_stock);
 
   return (
     <div className="space-y-6">
@@ -192,28 +262,25 @@ export default function YearEndClosePage() {
       <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary via-primary/90 to-primary/70 p-6 md:p-8 text-primary-foreground">
         <div className="absolute inset-0 opacity-40 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')]" />
         <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-10 w-10 rounded-lg bg-accent/20 backdrop-blur-sm flex items-center justify-center">
-                <CalendarCheck className="h-5 w-5 text-accent" />
-              </div>
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold">Year-End Close</h1>
-                <p className="text-primary-foreground/70 text-sm">
-                  {fyLabel} · Closes on 31 March {fyYear + 1} · New FY starts 1 April {fyYear + 1}
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-accent/20 backdrop-blur-sm flex items-center justify-center">
+              <CalendarCheck className="h-5 w-5 text-accent" />
+            </div>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold">Year-End Close</h1>
+              <p className="text-primary-foreground/70 text-sm">
+                {fyLabel} · Closes 31 Mar {fyYear + 1} · New FY starts 1 Apr {fyYear + 1}
+              </p>
             </div>
           </div>
-          {/* Summary KPIs */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Unpaid Bills", value: (unpaidBills ?? []).length, sub: fmt(totalUnpaidAmount), warn: (unpaidBills ?? []).length > 0 },
-              { label: "Products", value: (products ?? []).length, sub: `${stockCountEntered} counted` },
-              { label: "Vendors", value: (vendors ?? []).length, sub: rolloverDone ? "Rolled over ✓" : "Pending rollover" },
+              { label: "Unpaid Bills",  value: (unpaidBills ?? []).length,    sub: fmt(totalUnpaidAmount),             warn: (unpaidBills ?? []).length > 0 },
+              { label: "Items Counted", value: countedItems.length,            sub: `${varianceItems.length} variances` },
+              { label: "Vendors",       value: (vendors ?? []).length,         sub: rolloverDone ? "Rolled over ✓" : "Pending rollover" },
             ].map(k => (
               <div key={k.label} className="bg-primary-foreground/10 backdrop-blur-sm rounded-lg p-3 border border-primary-foreground/10">
-                <span className={`text-xs ${k.warn ? "text-destructive font-semibold" : "text-primary-foreground/60"}`}>{k.label}</span>
+                <span className={`text-xs ${k.warn ? "text-yellow-300 font-semibold" : "text-primary-foreground/60"}`}>{k.label}</span>
                 <p className="text-lg font-bold font-mono">{k.value}</p>
                 <p className="text-[11px] text-primary-foreground/50">{k.sub}</p>
               </div>
@@ -228,20 +295,17 @@ export default function YearEndClosePage() {
           const status = stepStatus(s.key);
           const active = step === s.key;
           return (
-            <button
-              key={s.key}
-              onClick={() => setStep(s.key)}
+            <button key={s.key} onClick={() => setStep(s.key)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
-                active
-                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                  : "bg-card text-foreground border-border hover:border-primary/40"
+                active ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                       : "bg-card text-foreground border-border hover:border-primary/40"
               }`}
             >
               <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${
-                status === "done" ? "bg-success text-white" :
+                status === "done"    ? "bg-success text-white" :
                 status === "partial" ? "bg-warning text-white" :
-                active ? "bg-primary-foreground/20 text-primary-foreground" :
-                "bg-muted text-muted-foreground"
+                active               ? "bg-primary-foreground/20 text-primary-foreground" :
+                                       "bg-muted text-muted-foreground"
               }`}>
                 {status === "done" ? "✓" : i + 1}
               </span>
@@ -270,24 +334,24 @@ export default function YearEndClosePage() {
                 },
                 {
                   label: "Stock Take",
-                  status: stockSaved ? "ok" : stockCountEntered > 0 ? "partial" : "pending",
+                  status: stockSaved ? "ok" : countedItems.length > 0 ? "partial" : "pending",
                   detail: stockSaved
-                    ? `${stockCountEntered} products counted and saved`
-                    : stockCountEntered > 0
-                    ? `${stockCountEntered} of ${(products ?? []).length} products counted — not yet saved`
-                    : `${(products ?? []).length} products need physical count`,
+                    ? `${countedItems.length} products counted and saved`
+                    : countedItems.length > 0
+                    ? `${countedItems.length} products counted — not yet saved`
+                    : "No products counted yet",
                 },
                 {
                   label: "Vendor Balance Rollover",
                   status: rolloverDone ? "ok" : "pending",
                   detail: rolloverDone
                     ? `${vendorRollRows.length} vendors rolled over to ${nextFYStartStr}`
-                    : `${vendorRollRows.length} vendors pending — current balances become new opening balances`,
+                    : `${vendorRollRows.length} vendors pending`,
                 },
               ].map(item => (
                 <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30 border border-border/50">
                   <div className={`mt-0.5 ${item.status === "ok" ? "text-success" : item.status === "warn" ? "text-destructive" : "text-muted-foreground"}`}>
-                    {item.status === "ok" ? <CheckCircle2 className="h-4 w-4" /> :
+                    {item.status === "ok"   ? <CheckCircle2 className="h-4 w-4" /> :
                      item.status === "warn" ? <AlertTriangle className="h-4 w-4" /> :
                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/40" />}
                   </div>
@@ -300,7 +364,6 @@ export default function YearEndClosePage() {
             </div>
           </div>
 
-          {/* FY info card */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-card rounded-xl border p-4 flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -334,94 +397,172 @@ export default function YearEndClosePage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <Button onClick={() => setStep("stocktake")}>
-              Start Stock Take <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          </div>
+          <Button onClick={() => setStep("stocktake")}>
+            Start Stock Take <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
         </div>
       )}
 
-      {/* ── STEP 2: STOCK TAKE ── */}
+      {/* ── STEP 2: STOCK TAKE (SCAN / CODE ENTRY MODE) ── */}
       {step === "stocktake" && (
         <div className="space-y-4">
-          <div className="bg-card rounded-xl border overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h2 className="font-semibold text-foreground flex items-center gap-2">
-                  <Package className="h-4 w-4 text-primary" /> Physical Stock Count
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Enter actual physical count for each product. Leave blank to keep system stock unchanged.
-                </p>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span>{stockCountEntered} of {stockRows.length} entered</span>
-                {stockVarianceItems.length > 0 && (
-                  <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
-                    {stockVarianceItems.length} variances
-                  </Badge>
-                )}
-                <Button
-                  size="sm"
-                  disabled={stockCountEntered === 0 || saveStockTake.isPending || stockSaved}
-                  onClick={() => saveStockTake.mutate()}
-                >
-                  {saveStockTake.isPending ? "Saving..." : stockSaved ? "Saved ✓" : `Save ${stockCountEntered} Updates`}
-                </Button>
-              </div>
+
+          {/* Scan/Entry Panel */}
+          <div className="bg-card rounded-xl border p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <ScanLine className="h-5 w-5 text-primary" />
+              <h2 className="font-semibold text-foreground">Scan or Enter Item Code</h2>
+              <span className="text-xs text-muted-foreground ml-auto">
+                {countedItems.length} items counted · {varianceItems.length} variances
+              </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code</th>
-                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Product</th>
-                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Category</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">System Stock</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Physical Count</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Variance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {productsLoading ? (
-                    <tr><td colSpan={6} className="text-center py-10 text-muted-foreground text-sm">Loading products...</td></tr>
-                  ) : stockRows.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-10 text-muted-foreground text-sm">No products found</td></tr>
-                  ) : (
-                    stockRows.map(row => {
-                      const variance = row.physical_count !== null ? row.physical_count - row.system_stock : null;
-                      const hasVariance = variance !== null && variance !== 0;
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Step A: Code input */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  1. Scan barcode or type item code
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      ref={codeRef}
+                      value={codeInput}
+                      onChange={e => { setCodeInput(e.target.value); setNotFound(false); setMatchedProduct(null); }}
+                      onKeyDown={handleCodeKeyDown}
+                      placeholder="e.g. SKU001 or scan barcode..."
+                      className="pl-9 font-mono text-base"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <Button onClick={handleCodeSearch} disabled={!codeInput.trim()} variant="outline">
+                    Find
+                  </Button>
+                </div>
+
+                {notFound && (
+                  <p className="text-xs text-destructive flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    No product found for code "{codeInput}"
+                  </p>
+                )}
+
+                {matchedProduct && (
+                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Package className="h-4 w-4 text-primary" />
+                      <span className="font-semibold text-foreground text-sm">{matchedProduct.name}</span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span>Code: <span className="font-mono text-foreground">{matchedProduct.item_code}</span></span>
+                      <span>System stock: <span className="font-mono font-semibold text-foreground">{matchedProduct.quantity_in_stock}</span></span>
+                      {matchedProduct.category && <span>Category: {matchedProduct.category}</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Step B: Quantity input */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  2. Enter physical count
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    ref={qtyRef}
+                    type="number"
+                    min={0}
+                    value={qtyInput}
+                    onChange={e => setQtyInput(e.target.value)}
+                    onKeyDown={handleQtyKeyDown}
+                    placeholder="Quantity counted..."
+                    className="text-base font-mono"
+                    disabled={!matchedProduct}
+                  />
+                  <Button
+                    onClick={handleAddCount}
+                    disabled={!matchedProduct || qtyInput === ""}
+                    className="shrink-0"
+                  >
+                    Add ↵
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Press Enter after quantity to add and move to next item
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Counted Items List */}
+          {countedItems.length > 0 && (
+            <div className="bg-card rounded-xl border overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h3 className="font-semibold text-foreground flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                    Counted Items ({countedItems.length})
+                  </h3>
+                  {varianceItems.length > 0 && (
+                    <p className="text-xs text-warning mt-0.5">
+                      {varianceItems.length} item(s) have variance from system stock
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setCountedItems([]); setStockSaved(false); }}
+                  >
+                    <X className="h-3.5 w-3.5 mr-1" /> Clear All
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={saveStockTake.isPending || stockSaved}
+                    onClick={() => saveStockTake.mutate()}
+                  >
+                    {saveStockTake.isPending ? "Saving..." : stockSaved ? "Saved ✓" : `Save ${countedItems.length} Items`}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code</th>
+                      <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Product</th>
+                      <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Category</th>
+                      <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">System Stock</th>
+                      <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Physical Count</th>
+                      <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Variance</th>
+                      <th className="w-10" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {countedItems.map(item => {
+                      const variance = item.physical_count - item.system_stock;
                       return (
-                        <tr key={row.id} className={`hover:bg-muted/20 transition-colors ${hasVariance ? "bg-warning/5" : ""}`}>
-                          <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{row.item_code}</td>
-                          <td className="px-4 py-2.5 font-medium text-foreground">{row.name}</td>
-                          <td className="px-4 py-2.5 text-sm text-muted-foreground">{row.category || "—"}</td>
-                          <td className="px-4 py-2.5 text-right font-mono font-semibold text-foreground">{row.system_stock}</td>
+                        <tr key={item.product_id} className={`hover:bg-muted/20 ${variance !== 0 ? "bg-warning/5" : ""}`}>
+                          <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{item.item_code}</td>
+                          <td className="px-4 py-2.5 font-medium text-foreground">{item.name}</td>
+                          <td className="px-4 py-2.5 text-sm text-muted-foreground">{item.category || "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-foreground">{item.system_stock}</td>
                           <td className="px-4 py-2.5 text-right">
                             <input
                               type="number"
                               min={0}
-                              placeholder={String(row.system_stock)}
-                              value={physicalCounts[row.id] !== undefined ? physicalCounts[row.id] : ""}
-                              onChange={e => {
-                                const val = e.target.value;
-                                if (val === "") {
-                                  setPhysicalCounts(prev => { const n = { ...prev }; delete n[row.id]; return n; });
-                                } else {
-                                  setPhysicalCounts(prev => ({ ...prev, [row.id]: Number(val) }));
-                                }
-                              }}
+                              value={item.physical_count}
+                              onChange={e => updateCount(item.product_id, Number(e.target.value))}
                               className={`w-20 text-right rounded border px-2 py-1 text-sm font-mono bg-background focus:outline-none focus:ring-1 focus:ring-primary ${
-                                hasVariance ? "border-warning/60 bg-warning/5" : "border-border"
+                                variance !== 0 ? "border-warning/60" : "border-border"
                               }`}
                             />
                           </td>
                           <td className="px-4 py-2.5 text-right">
-                            {variance === null ? (
-                              <span className="text-xs text-muted-foreground/40">—</span>
-                            ) : variance === 0 ? (
+                            {variance === 0 ? (
                               <span className="text-xs text-success font-mono">0</span>
                             ) : (
                               <span className={`text-xs font-mono font-semibold ${variance > 0 ? "text-success" : "text-destructive"}`}>
@@ -429,21 +570,35 @@ export default function YearEndClosePage() {
                               </span>
                             )}
                           </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <button onClick={() => removeItem(item.product_id)}
+                              className="text-muted-foreground/30 hover:text-destructive transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
                         </tr>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {stockVarianceItems.length > 0 && (
-              <div className="px-5 py-3 border-t bg-warning/5 text-xs text-warning flex items-center gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {stockVarianceItems.length} product(s) have variance between system stock and physical count. Saving will update the system stock to the physical count.
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
+
+              {stockSaved && (
+                <div className="px-5 py-3 border-t bg-success/5 text-xs text-success flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Stock take saved — {countedItems.length} products updated in the system.
+                </div>
+              )}
+            </div>
+          )}
+
+          {countedItems.length === 0 && (
+            <div className="bg-card rounded-xl border p-10 text-center">
+              <ScanLine className="h-12 w-12 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="text-muted-foreground font-medium">No items counted yet</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">Scan a barcode or type an item code above to start</p>
+            </div>
+          )}
 
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep("overview")}>← Back</Button>
@@ -464,7 +619,7 @@ export default function YearEndClosePage() {
                   <RefreshCw className="h-4 w-4 text-primary" /> Vendor Balance Rollover
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Each vendor's current balance as of 31 Mar {fyYear + 1} will become their opening balance for 1 Apr {fyYear + 1}.
+                  Each vendor's current balance becomes their opening balance for 1 Apr {fyYear + 1}.
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -484,11 +639,9 @@ export default function YearEndClosePage() {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Confirm Vendor Balance Rollover</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will update the <strong>opening balance</strong> for all {vendorRollRows.length} vendors to their <strong>current balance as of 31 March {fyYear + 1}</strong>, with opening balance date set to <strong>1 April {fyYear + 1}</strong>.
+                          This will update the <strong>opening balance</strong> for all {vendorRollRows.length} vendors to their current balance as of 31 March {fyYear + 1}, with opening balance date set to <strong>1 April {fyYear + 1}</strong>.
                           <br /><br />
-                          Total opening balance for new FY: <strong>{fmt(totalNewOpeningBalance)}</strong>
-                          <br /><br />
-                          This action can be re-run if needed.
+                          Total new opening balance: <strong>{fmt(totalNewOpeningBalance)}</strong>
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -508,57 +661,40 @@ export default function YearEndClosePage() {
                 <thead>
                   <tr className="border-b bg-muted/30">
                     <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Vendor</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Current Opening Balance</th>
-                    <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"></th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Current Balance (31 Mar)</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">New Opening Balance (1 Apr)</th>
+                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Current Opening</th>
+                    <th className="text-center px-4 py-3" />
+                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Balance (31 Mar)</th>
+                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">New Opening (1 Apr)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {vendorsLoading ? (
-                    <tr><td colSpan={5} className="text-center py-10 text-muted-foreground text-sm">Loading vendors...</td></tr>
-                  ) : (
-                    vendorRollRows.map(v => {
-                      const changed = v.current_balance !== v.current_opening;
-                      return (
-                        <tr key={v.id} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                                <span className="text-xs font-bold text-primary">{v.company_name.charAt(0)}</span>
-                              </div>
-                              <span className="font-medium text-foreground">{v.company_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-sm text-muted-foreground">
-                            {fmt(v.current_opening)}
-                          </td>
-                          <td className="px-4 py-3 text-center text-muted-foreground/40">
-                            <ArrowRight className="h-3.5 w-3.5 mx-auto" />
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-foreground">
-                            {fmt(v.current_balance)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-sm font-bold">
-                            <span className={rolloverDone ? "text-success" : changed ? "text-primary" : "text-foreground"}>
-                              {fmt(v.current_balance)}
-                            </span>
-                            {rolloverDone && <CheckCircle2 className="h-3.5 w-3.5 text-success inline ml-1.5" />}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                  {vendorRollRows.map(v => (
+                    <tr key={v.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-primary">{v.company_name.charAt(0)}</span>
+                          </div>
+                          <span className="font-medium text-foreground">{v.company_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-sm text-muted-foreground">{fmt(v.current_opening)}</td>
+                      <td className="px-4 py-3 text-center text-muted-foreground/40"><ArrowRight className="h-3.5 w-3.5 mx-auto" /></td>
+                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-foreground">{fmt(v.current_balance)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-sm font-bold">
+                        <span className={rolloverDone ? "text-success" : "text-primary"}>{fmt(v.current_balance)}</span>
+                        {rolloverDone && <CheckCircle2 className="h-3.5 w-3.5 text-success inline ml-1.5" />}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 bg-muted/20">
-                    <td className="px-4 py-3 text-sm font-semibold text-foreground" colSpan={3}>Total</td>
+                    <td className="px-4 py-3 font-semibold text-foreground" colSpan={3}>Total</td>
                     <td className="px-4 py-3 text-right font-mono font-bold text-foreground">
                       {fmt(vendorRollRows.reduce((s, v) => s + v.current_balance, 0))}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-bold text-success">
-                      {fmt(totalNewOpeningBalance)}
-                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-success">{fmt(totalNewOpeningBalance)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -567,9 +703,7 @@ export default function YearEndClosePage() {
 
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep("stocktake")}>← Back</Button>
-            <Button onClick={() => setStep("close")}>
-              Next: Close Year <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
+            <Button onClick={() => setStep("close")}>Next: Close Year <ArrowRight className="h-4 w-4 ml-2" /></Button>
           </div>
         </div>
       )}
@@ -584,16 +718,16 @@ export default function YearEndClosePage() {
               </div>
               <div>
                 <h2 className="font-semibold text-foreground">Year-End Summary — {fyLabel}</h2>
-                <p className="text-xs text-muted-foreground">Review the closing status before finalising</p>
+                <p className="text-xs text-muted-foreground">Review the closing status</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               {[
-                { label: "Stock Take", done: stockSaved, detail: stockSaved ? `${stockCountEntered} products updated` : "Not completed" },
-                { label: "Vendor Rollover", done: rolloverDone, detail: rolloverDone ? `${vendorRollRows.length} vendors rolled over to 1 Apr ${fyYear + 1}` : "Not executed" },
-                { label: "Unpaid Bills", done: (unpaidBills ?? []).length === 0, detail: (unpaidBills ?? []).length === 0 ? "All clear" : `${(unpaidBills ?? []).length} bills remain unpaid (${fmt(totalUnpaidAmount)})` },
-                { label: "New Opening Balances", done: rolloverDone, detail: `${fmt(totalNewOpeningBalance)} total across ${vendorRollRows.length} vendors` },
+                { label: "Stock Take",         done: stockSaved,   detail: stockSaved   ? `${countedItems.length} products updated` : "Not saved yet" },
+                { label: "Vendor Rollover",    done: rolloverDone, detail: rolloverDone ? `${vendorRollRows.length} vendors → 1 Apr ${fyYear + 1}` : "Not executed yet" },
+                { label: "Unpaid Bills",       done: (unpaidBills ?? []).length === 0, detail: (unpaidBills ?? []).length === 0 ? "All clear" : `${(unpaidBills ?? []).length} still unpaid` },
+                { label: "New Opening Totals", done: rolloverDone, detail: `${fmt(totalNewOpeningBalance)} across ${vendorRollRows.length} vendors` },
               ].map(item => (
                 <div key={item.label} className={`flex gap-3 p-4 rounded-lg border ${item.done ? "bg-success/5 border-success/20" : "bg-muted/30 border-border"}`}>
                   <div className={`mt-0.5 shrink-0 ${item.done ? "text-success" : "text-muted-foreground/40"}`}>
@@ -607,27 +741,14 @@ export default function YearEndClosePage() {
               ))}
             </div>
 
-            <div className="bg-muted/30 rounded-lg p-4 border border-border mb-6 text-sm text-muted-foreground space-y-1.5">
-              <p className="font-medium text-foreground text-sm mb-2">What happens after year-end close:</p>
-              <p>• All new purchase bills will be posted to <strong>{getFYLabel(fyYear + 1)}</strong></p>
-              <p>• Vendor opening balances are now set to <strong>1 April {fyYear + 1}</strong></p>
-              <p>• Stock quantities reflect the physical count taken during stock take</p>
-              <p>• GST Reports and FY filters will treat {fyYear + 1} as the new active year</p>
+            <div className="bg-muted/30 rounded-lg p-4 border border-border text-sm text-muted-foreground space-y-1.5 mb-4">
+              <p className="font-medium text-foreground text-sm mb-2">What happens after closing:</p>
+              <p>• New purchase bills will be posted to <strong>{getFYLabel(fyYear + 1)}</strong></p>
+              <p>• Vendor opening balances are set to <strong>1 April {fyYear + 1}</strong></p>
+              <p>• Stock quantities reflect the physical count from stock take</p>
             </div>
 
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setStep("rollover")}>← Back</Button>
-              {!stockSaved && (
-                <p className="text-xs text-warning flex items-center gap-1.5 self-center">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Stock take not saved yet
-                </p>
-              )}
-              {!rolloverDone && (
-                <p className="text-xs text-warning flex items-center gap-1.5 self-center">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Vendor rollover not executed yet
-                </p>
-              )}
-            </div>
+            <Button variant="outline" onClick={() => setStep("rollover")}>← Back</Button>
           </div>
         </div>
       )}
