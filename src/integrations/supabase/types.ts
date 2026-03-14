@@ -1014,6 +1014,47 @@ export type Database = {
         }
         Relationships: []
       }
+      call_logs: {
+        Row: {
+          call_type: string
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          details: string | null
+          id: string
+          is_resolved: boolean
+          summary: string
+        }
+        Insert: {
+          call_type: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          details?: string | null
+          id?: string
+          is_resolved?: boolean
+          summary: string
+        }
+        Update: {
+          call_type?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          details?: string | null
+          id?: string
+          is_resolved?: boolean
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_logs_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customer_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           created_at: string | null
@@ -5532,6 +5573,7 @@ export type Database = {
           is_admin: boolean | null
           is_same_person: boolean | null
           label_url: string | null
+          last_changed_at: string | null
           material_availability: boolean | null
           order_category: string | null
           order_date: string
@@ -5575,6 +5617,7 @@ export type Database = {
           is_admin?: boolean | null
           is_same_person?: boolean | null
           label_url?: string | null
+          last_changed_at?: string | null
           material_availability?: boolean | null
           order_category?: string | null
           order_date: string
@@ -5618,6 +5661,7 @@ export type Database = {
           is_admin?: boolean | null
           is_same_person?: boolean | null
           label_url?: string | null
+          last_changed_at?: string | null
           material_availability?: boolean | null
           order_category?: string | null
           order_date?: string
@@ -6885,7 +6929,14 @@ export type Database = {
             foreignKeyName: "products_supplier_id_fkey"
             columns: ["supplier_id"]
             isOneToOne: false
-            referencedRelation: "suppliers"
+            referencedRelation: "vendor_balance_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
         ]
