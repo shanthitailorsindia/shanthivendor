@@ -13,6 +13,7 @@ import VendorDetailPage from "@/pages/VendorDetailPage";
 import PurchaseBillsPage from "@/pages/PurchaseBillsPage";
 import PaymentsPage from "@/pages/PaymentsPage";
 import ProductsPage from "@/pages/ProductsPage";
+import PaymentPlannerPage from "@/pages/PaymentPlannerPage";
 import QRPriceTagsPage from "@/pages/QRPriceTagsPage";
 import ZohoImportPage from "@/pages/ZohoImportPage";
 import GSTReportsPage from "@/pages/GSTReportsPage";
@@ -62,6 +63,7 @@ function AuthWrapper() {
         <Route path="/vendors/:id" element={<VendorDetailPage />} />
         <Route path="/purchase-bills" element={<PurchaseBillsPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/payment-planner" element={<PaymentPlannerPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/gst-reports" element={<GSTReportsPage />} />
         <Route path="/qr-price-tags" element={<QRPriceTagsPage />} />

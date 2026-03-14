@@ -11,6 +11,7 @@ import {
   Upload,
   BarChart3,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
 import shanthiLogo from "@/assets/shanthi-logo.png";
 
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/vendors", label: "Vendors", icon: Users },
   { to: "/purchase-bills", label: "Purchase Bills", icon: FileText },
   { to: "/payments", label: "Payments", icon: CreditCard },
+  { to: "/payment-planner", label: "Payment Planner", icon: Wallet },
   { to: "/products", label: "Products", icon: Package },
   { to: "/gst-reports", label: "GST Reports", icon: BarChart3 },
   { to: "/qr-price-tags", label: "QR Price Tags", icon: QrCode },
